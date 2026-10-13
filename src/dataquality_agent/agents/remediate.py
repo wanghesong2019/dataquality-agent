@@ -1,0 +1,24 @@
+"""整改 Agent（Executor + Critic 自评审）：生成修复方案，模型输出里带风险等级。"""
+import json
+
+from dataquality_agent.models import Diagnosis, Remediation
+
+
+def make_remediate_node(model):
+    """返回整改节点函数。model 通过闭包注入。"""
+    def remediate(state):
+        remediations = []
+        for d in state.get("diagnoses", []):
+            prompt = f"根因：{d.root_cause_category}（置信度 {d.confidence}）。给出修复方案。"
+            resp = model(prompt).strip()
+            try:
+                data = json.loads(resp)
+            except json.JSONDecodeError:
+                data = {}
+            remediations.append(Remediation(
+                action_type=data.get("action_type", "ticket"),
+                sql_or_suggestion=data.get("sql_or_suggestion", ""),
+                risk_level=data.get("risk_level", "low"),
+            ))
+        return {"remediations": remediations}
+    return remediate
