@@ -12,10 +12,13 @@ def test_graph_flow():
     def remediate(state):
         return {"remediations": [Remediation(action_type="ticket", sql_or_suggestion="去重")]}
 
+    def approve(state):
+        return {"approvals": []}
+
     def report(state):
         return {"report": Report(summary="done", anomaly_count=len(state.get("anomalies", [])))}
 
-    graph = build_graph(inspect, diagnose, remediate, report)
+    graph = build_graph(inspect, diagnose, remediate, approve, report)
     result = graph.invoke({"run_id": "r1"})
     assert len(result["anomalies"]) == 1
     assert len(result["diagnoses"]) == 1
