@@ -5,6 +5,7 @@ _TABLE_LINEAGE: dict[str, list[str]] = {
     "order_items": ["orders", "products", "sellers"],
     "payments": ["orders"],
     "reviews": ["orders"],
+    "daily_metrics": ["orders", "order_items"],
 }
 
 

@@ -1,4 +1,7 @@
-from dataquality_agent.detection.stats import zscore_detect, psi, check_freshness, schema_diff
+from dataquality_agent.data.lineage import Lineage
+from dataquality_agent.detection.stats import (
+    zscore_detect, psi, check_freshness, schema_diff, detect_lineage_break,
+)
 
 
 def test_zscore_detect_normal_and_spike():
@@ -32,3 +35,16 @@ def test_schema_diff():
     assert "type_changed:a:INTEGER->VARCHAR" in changes
     assert "removed:b" in changes
     assert "added:c" in changes
+
+
+def test_lineage_break_detected():
+    lineage = Lineage()
+    watermarks = {"orders": "2018-10-17", "order_items": "2018-10-17", "daily_metrics": "2018-10-10"}
+    anomalies = detect_lineage_break(watermarks, lineage, max_lag_days=1)
+    assert any(a.type == "lineage_break" and a.table == "daily_metrics" for a in anomalies)
+
+
+def test_lineage_break_no_lag():
+    lineage = Lineage()
+    watermarks = {"orders": "2018-10-17", "order_items": "2018-10-17", "daily_metrics": "2018-10-17"}
+    assert detect_lineage_break(watermarks, lineage, max_lag_days=1) == []
