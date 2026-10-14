@@ -13,7 +13,9 @@ def make_remediate_node(model):
             prompt = (
                 f"根因：{d.root_cause_category}（置信度 {d.confidence}）。给出修复方案。"
                 '输出 JSON，字段必须为：{"action_type": "fix_sql/add_rule/ticket/alert", '
-                '"sql_or_suggestion": "字符串", "risk_level": "low/medium/high"}'
+                '"sql_or_suggestion": "字符串", "risk_level": "low/medium/high"}。'
+                'action_type 含义：fix_sql=修复SQL、add_rule=新增质量规则、ticket=生成工单、alert=告警通知。'
+                'risk_level 判定：涉及 DELETE/UPDATE 生产表、金额字段、权限变更→high；只读建议→low；其余→medium。'
             )
             resp = model(prompt).strip()
             try:
