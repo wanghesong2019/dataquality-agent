@@ -61,3 +61,35 @@ def test_inject_root_cause_category_alignment(mini_warehouse):
     cats = {i.type: i.root_cause_category for i in gt.injections}
     assert cats["duplicate"] == "脏数据注入"
     assert cats["orphan"] == "上游任务失败"
+
+
+def test_inject_lineage_break(mini_warehouse):
+    inj = Injector(mini_warehouse)
+    conn = inj.connect()
+    before = conn.execute("SELECT MAX(order_date) FROM daily_metrics").fetchone()[0]
+    gt = inj.run(conn, [{"type": "lineage_break", "table": "daily_metrics", "date_col": "order_date", "n": 1}])
+    a = gt.injections[0]
+    assert a.type == "lineage_break"
+    assert a.root_cause_category == "上游数据延迟"
+    after = conn.execute("SELECT MAX(order_date) FROM daily_metrics").fetchone()[0]
+    assert after < before  # 删了最近一天 → 下游水位线后退
+
+
+def test_inject_freshness(mini_warehouse):
+    inj = Injector(mini_warehouse)
+    conn = inj.connect()
+    gt = inj.run(conn, [{"type": "freshness", "table": "daily_metrics", "date_col": "order_date", "n": 1}])
+    a = gt.injections[0]
+    assert a.type == "freshness"
+    assert a.root_cause_category == "上游数据延迟"
+
+
+def test_inject_schema(mini_warehouse):
+    inj = Injector(mini_warehouse)
+    conn = inj.connect()
+    gt = inj.run(conn, [{"type": "schema_drift", "table": "dwd_orders", "drop_column": "order_approved_at"}])
+    a = gt.injections[0]
+    assert a.type == "schema_drift"
+    assert a.root_cause_category == "schema变更"
+    cols = [r[0] for r in conn.execute("DESCRIBE dwd_orders").fetchall()]
+    assert "order_approved_at" not in cols

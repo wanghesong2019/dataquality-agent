@@ -9,10 +9,13 @@ from dataquality_agent.config import Settings
 # ground-truth 的「预期根因类别」→ 与 Diagnosis.root_cause_category 枚举对齐（归因正确率评估的地基）。
 # 口径：注入器模拟的是真实根因造成的「结果」，不是「我们注入了脏数据」这个动作本身，所以能映射回业务语义。
 ROOT_CAUSE_CATEGORY = {
-    "duplicate": "脏数据注入",   # 重复行进入数仓
-    "orphan": "上游任务失败",     # 上游订单被删/未加载 → 上游数据缺失
-    "null_rate": "脏数据注入",    # 关键列被置空
-    "value_range": "脏数据注入",  # 负价格等非法值
+    "duplicate": "脏数据注入",       # 重复行进入数仓
+    "orphan": "上游任务失败",         # 上游订单被删/未加载 → 上游数据缺失
+    "null_rate": "脏数据注入",        # 关键列被置空
+    "value_range": "脏数据注入",      # 负价格等非法值
+    "lineage_break": "上游数据延迟",  # 下游停更 → 上游数据未及时到达
+    "freshness": "上游数据延迟",      # 数据停更/迟到
+    "schema_drift": "schema变更",     # 列被删/改类型
 }
 
 
@@ -106,6 +109,48 @@ class Injector:
             location=f"{len(keys)} rows corrupted in {table}.{column}",
         )
 
+    def inject_lineage_break(self, conn, table: str, date_col: str, n: int = 1) -> InjectedAnomaly:
+        """删除下游表最近 n 天，让下游水位线落后上游，制造血缘断裂。"""
+        conn.execute(
+            f"DELETE FROM {table} WHERE {date_col} IN "
+            f"(SELECT {date_col} FROM {table} ORDER BY {date_col} DESC LIMIT {n})"
+        )
+        return InjectedAnomaly(
+            type="lineage_break",
+            table=table,
+            column=date_col,
+            root_cause=f"{table} 下游停更（最近 {n} 天未更新）",
+            root_cause_category=ROOT_CAUSE_CATEGORY["lineage_break"],
+            location=f"recent {n} days deleted from {table}",
+        )
+
+    def inject_freshness(self, conn, table: str, date_col: str, n: int = 1) -> InjectedAnomaly:
+        """删除表最近 n 天，制造数据停更（freshness：最新分区日落后当前日期）。"""
+        conn.execute(
+            f"DELETE FROM {table} WHERE {date_col} IN "
+            f"(SELECT {date_col} FROM {table} ORDER BY {date_col} DESC LIMIT {n})"
+        )
+        return InjectedAnomaly(
+            type="freshness",
+            table=table,
+            column=date_col,
+            root_cause=f"{table} 数据停更（最近 {n} 天缺失）",
+            root_cause_category=ROOT_CAUSE_CATEGORY["freshness"],
+            location=f"recent {n} days deleted from {table}",
+        )
+
+    def inject_schema(self, conn, table: str, drop_column: str) -> InjectedAnomaly:
+        """删掉表的一列，制造 schema 漂移。"""
+        conn.execute(f"ALTER TABLE {table} DROP COLUMN {drop_column}")
+        return InjectedAnomaly(
+            type="schema_drift",
+            table=table,
+            column=drop_column,
+            root_cause=f"{table} 缺失列 {drop_column}（schema 变更）",
+            root_cause_category=ROOT_CAUSE_CATEGORY["schema_drift"],
+            location=f"column {drop_column} dropped from {table}",
+        )
+
     def run(self, conn, specs: list[dict]) -> GroundTruth:
         """按 specs 执行一组注入，返回完整 ground-truth。"""
         gt = GroundTruth()
@@ -135,6 +180,18 @@ class Injector:
                         conn, spec["table"], spec["column"], spec["key_cols"],
                         spec.get("n", 1), spec.get("bad_value", -5.0),
                     )
+                )
+            elif t == "lineage_break":
+                gt.injections.append(
+                    self.inject_lineage_break(conn, spec["table"], spec["date_col"], spec.get("n", 1))
+                )
+            elif t == "freshness":
+                gt.injections.append(
+                    self.inject_freshness(conn, spec["table"], spec["date_col"], spec.get("n", 1))
+                )
+            elif t == "schema_drift":
+                gt.injections.append(
+                    self.inject_schema(conn, spec["table"], spec["drop_column"])
                 )
             else:
                 raise ValueError(f"unknown injection type: {t}")
