@@ -1,4 +1,15 @@
-"""可观测：Trace + 成本台账。默认记录到内存（测试/本地），配 Langfuse 后上报。"""
+"""可观测：Trace + 成本台账。默认记录到内存（测试/本地），配 Langfuse 后上报。
+
+知识地图（为什么需要它）
+--------------------------
+回答"每次巡检跑了多少 Token、花了多少钱、哪一步最慢"。分两块：
+- Trace：一次运行里发生了什么——每次 LLM 调用的输入/输出/token/耗时（`Span`）。
+- 成本台账（`CostLedger`）：累计 token/成本/调用次数。
+
+关键设计原则：可观测是"旁路"，不能因为监控挂了导致主流程挂。所以 `LangfuseBackend`
+惰性导入 + 未配置 no-op；集成点 `LLMAdapter.__call__` 每次调用埋一个 span，token 计数
+和 CostLedger 共用同一份（`len(prompt)+len(resp)`），两者永远对得上。
+"""
 import time
 from dataclasses import dataclass, field
 

@@ -1,4 +1,21 @@
-"""评估指标：把检测/归因/整改结果与 ground-truth 对比，算出可量化效果。"""
+"""评估指标：把检测/归因/整改结果与 ground-truth 对比，算出可量化效果。
+
+知识地图（为什么这么设计）
+--------------------------
+求职项目要"经得起面试拷打"，核心是回答"你怎么证明 Agent 做对了"。规则/统计检测是
+确定性的，但 LLM 归因/整改是概率性的——没有量化数字，只能靠"我觉得效果不错"。
+
+地基是 ground-truth（注入器"打靶"时记录真实根因）：检测/归因/整改分别"找靶/对靶"，
+本模块"对靶算分"。评估的本质是"集合对齐"——把两边结果规约成可比的对齐键，再算
+交集/差集：
+
+- 检测对齐键 = (type, table)：`_keys()` 把 Anomaly/InjectedAnomaly 压成该集合，
+  tp=检测∩注入、fp=检测-注入(误报)、fn=注入-检测(漏检) → precision/recall/F1。
+- 归因对齐键 = (type, table) → root_cause_category：`attribution_accuracy` 比的是结构化
+  类别是否一致（不是自由文本像不像），这正是给 InjectedAnomaly 加该字段的原因。
+- 整改（复检口径）：`remediation_success` 不看 SQL 长啥样，只看"修复后重跑检测、异常
+  是否消失"；`end_to_end_success` 要求检出+归因对+修复后消失全链走通，分母=全部注入。
+"""
 from dataclasses import dataclass, field
 
 
@@ -36,11 +53,11 @@ def evaluate_detection(detected, injected) -> DetectionMetrics:
     """对比检测结果与注入的 ground-truth，按 (type, table) 匹配算 precision/recall/F1。"""
     det = _keys(detected)
     inj = _keys(injected)
-    tp = len(det & inj)
-    fp = len(det - inj)
-    fn = len(inj - det)
-    precision = tp / (tp + fp) if (tp + fp) else 0.0
-    recall = tp / (tp + fn) if (tp + fn) else 0.0
+    tp = len(det & inj) # 检测到且真注入过
+    fp = len(det - inj) # 检查到但没注入（误报）
+    fn = len(inj - det) # 注入过但没检测到 （漏报）
+    precision = tp / (tp + fp) if (tp + fp) else 0.0 # 报出来的异常有多少是真的
+    recall = tp / (tp + fn) if (tp + fn) else 0.0 # 真实异常里抓到了多少
     f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0.0
     return DetectionMetrics(tp=tp, fp=fp, fn=fn, precision=precision, recall=recall, f1=f1)
 
@@ -84,7 +101,7 @@ def attribution_accuracy(detected, diagnoses, injected) -> float:
     matched = total = 0
     for a, d in zip(detected, diagnoses):
         cat = gt.get((a.type, a.table))
-        if cat is None:
+        if cat is None: # 误报（检测出来但没注入过）直接跳过——它没有 ground-truth，不能算进归因正确率
             continue
         total += 1
         if d.root_cause_category == cat:
