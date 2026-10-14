@@ -57,6 +57,9 @@ class Tracer:
     def total_cost(self) -> float:
         return sum(s.cost for s in self.spans)
 
+    def total_duration(self) -> float:
+        return sum(s.duration for s in self.spans)
+
 
 class LangfuseBackend:
     """Langfuse 上报后端：惰性导入，未配置 key 则 no-op（不阻塞主流程）。"""

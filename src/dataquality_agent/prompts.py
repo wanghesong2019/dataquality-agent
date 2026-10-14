@@ -29,10 +29,11 @@ def build_remediate_prompt(anomaly, diagnosis) -> str:
         f"异常：type={anomaly.type}, table={anomaly.table}, column={anomaly.column or '-'}。"
         f"根因：{diagnosis.root_cause_category}（置信度 {diagnosis.confidence}）。"
         "请调用 submit_remediation 提交修复方案。"
-        "对于可用 SQL 修复的异常（重复/负值/空值等），action_type 用 fix_sql，"
-        "sql_or_suggestion 填可直接执行的修复 SQL（如去重 DELETE、修正 UPDATE）；"
-        "只有无法用 SQL 修复的（如上游任务失败需重跑）才用 ticket。"
-        "risk_level 判定：涉及 DELETE/UPDATE 生产表、金额字段、权限变更 → high；只读建议 → low；其余 → medium。"
+        "action_type 与风险无关：只要能用 SQL 修复（去重、修正负值、回填空值等），"
+        "就用 fix_sql 并给出纯 SQL（不要 -- 注释、不要解释文字，只要能直接执行的 SQL 语句，表名/列名用上面给到的）；"
+        "只有确实无法用 SQL 修复（上游任务需重跑、需人工判断）才用 ticket。"
+        "risk_level 单独判定：涉及 DELETE/UPDATE 生产表、金额字段、权限变更 → high（高危只影响是否审批，仍要给 fix_sql）；"
+        "只读建议 → low；其余 → medium。"
     )
 
 

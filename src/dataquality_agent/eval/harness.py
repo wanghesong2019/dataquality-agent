@@ -22,10 +22,15 @@ def classify_reversibility(anomaly_type: str) -> str:
 def apply_remediation(conn, remediation) -> bool:
     """在一次性 eval DB 上执行 fix_sql（best-effort），返回是否成功执行。
 
-    只执行 action_type == "fix_sql" 且非空的 SQL；执行失败（语法错/非 SQL）返回 False。
+    只执行 action_type == "fix_sql" 且非空的 SQL；去掉 -- 注释行（模型常带说明注释）；
+    执行失败（语法错/非 SQL/只剩注释）返回 False。
     """
     sql = (remediation.sql_or_suggestion or "").strip()
     if remediation.action_type != "fix_sql" or not sql:
+        return False
+    statements = [line for line in sql.splitlines() if line.strip() and not line.strip().startswith("--")]
+    sql = "\n".join(statements).strip()
+    if not sql:
         return False
     try:
         conn.execute(sql)
@@ -56,15 +61,19 @@ def remediation_success_by_reversibility(detected_before, detected_after, inject
     return result
 
 
-def run_eval(injected, detected_before, diagnoses, detected_after, stats, cost_ledger) -> EvalReport:
-    """组装 EvalReport：把各阶段输出喂给 metrics 函数，得到面试可报的量化数字。"""
+def run_eval(injected, detected_before, diagnoses, detected_after, stats, cost_ledger,
+             llm_seconds: float = 0.0) -> EvalReport:
+    """组装 EvalReport：把各阶段输出喂给 metrics 函数，得到面试可报的量化数字。
+
+    llm_seconds = 归因/整改等 LLM 调用耗时（检测层耗时在 stats 里，两者相加 = 全流程耗时）。
+    """
     return EvalReport(
         detection=evaluate_detection(detected_before, injected),
         detection_by_type=evaluate_detection_by_type(detected_before, injected),
         attribution_accuracy=attribution_accuracy(detected_before, diagnoses, injected),
         remediation_success=remediation_success(detected_before, detected_after, injected),
         end_to_end_success=end_to_end_success(detected_before, diagnoses, detected_after, injected),
-        latency_seconds=total_latency(stats) if stats else 0.0,
+        latency_seconds=(total_latency(stats) if stats else 0.0) + llm_seconds,
         total_tokens=cost_ledger.total_tokens if cost_ledger else 0,
         total_cost=cost_ledger.total_cost if cost_ledger else 0.0,
         llm_calls=cost_ledger.llm_calls if cost_ledger else 0,

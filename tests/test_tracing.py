@@ -27,3 +27,10 @@ def test_langfuse_backend_noop_when_unconfigured():
     b = LangfuseBackend()  # 无 key → no-op
     s = Span(name="x", start=0.0, tokens=1)
     b.record(s)  # 不应抛异常
+
+
+def test_tracer_total_duration():
+    t = Tracer()
+    t.spans.append(Span(name="a", start=0.0, end=2.0))
+    t.spans.append(Span(name="b", start=1.0, end=3.0))
+    assert t.total_duration() == 4.0  # (2-0) + (3-1)
