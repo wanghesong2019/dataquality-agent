@@ -37,3 +37,17 @@ def test_llm_adapter_tracks_cost():
     adapter("hello world")
     assert adapter.cost_ledger.llm_calls == 1
     assert adapter.cost_ledger.total_tokens > 0
+
+
+def test_llm_adapter_emits_trace():
+    from dataquality_agent.observability.tracing import Tracer
+
+    class FakeClient:
+        def chat(self, prompt):
+            return "ok"
+
+    tracer = Tracer()
+    adapter = LLMAdapter(FakeClient(), tracer=tracer)
+    adapter("hi")
+    assert len(tracer.spans) == 1
+    assert tracer.spans[0].tokens == len("hi") + len("ok")
