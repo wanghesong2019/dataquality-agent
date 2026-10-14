@@ -17,7 +17,7 @@ from dataquality_agent.config import load_env
 load_env(ROOT / ".env")
 
 runtime = build_runtime()
-app = create_app(runtime)
+app = create_app(runtime, static_dir=str(ROOT / "app"))
 
 if __name__ == "__main__":
     import uvicorn

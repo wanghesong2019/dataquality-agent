@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DataAgent 数据质量巡检</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; margin: 2rem; color: #222; background: #fafafa; }
+  h1 { font-size: 1.5rem; }
+  button { padding: .4rem .9rem; border: 1px solid #ccc; background: #fff; border-radius: 4px; cursor: pointer; }
+  button.primary { background: #1a73e8; color: #fff; border-color: #1a73e8; }
+  button.approve { background: #188038; color: #fff; border-color: #188038; }
+  button.reject { background: #d93025; color: #fff; border-color: #d93025; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; background: #fff; }
+  th, td { border: 1px solid #e0e0e0; padding: .45rem .6rem; text-align: left; font-size: .85rem; vertical-align: top; }
+  th { background: #f1f3f4; }
+  .card { background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 1rem; margin: 1rem 0; }
+  .muted { color: #666; font-size: .85rem; }
+  .badge { display: inline-block; padding: .1rem .5rem; border-radius: 10px; font-size: .75rem; }
+  .badge.high { background: #fce8e6; color: #c5221f; }
+  .badge.low { background: #e6f4ea; color: #188038; }
+  .badge.medium { background: #fef7e0; color: #b06000; }
+  .run-item { cursor: pointer; padding: .3rem 0; }
+  .run-item:hover { color: #1a73e8; }
+</style>
+</head>
+<body>
+  <h1>DataAgent 数据质量巡检</h1>
+  <div>
+    <button class="primary" onclick="triggerPatrol()">触发巡检</button>
+    <button onclick="listRuns()">刷新列表</button>
+    <span id="status" class="muted"></span>
+  </div>
+
+  <div class="card">
+    <h3>巡检记录</h3>
+    <div id="runs" class="muted">（点击「刷新列表」加载）</div>
+  </div>
+
+  <div id="detail"></div>
+
+<script>
+const status = (el) => document.getElementById('status').textContent = el || '';
+
+async function triggerPatrol() {
+  status('触发中…');
+  const r = await fetch('/patrol', { method: 'POST' });
+  const d = await r.json();
+  status(`已触发 run_id=${d.run_id}，状态=${d.status}`);
+  listRuns();
+  showRun(d.run_id);
+}
+
+async function listRuns() {
+  const r = await fetch('/patrols');
+  const d = await r.json();
+  const box = document.getElementById('runs');
+  if (!d.run_ids || d.run_ids.length === 0) { box.textContent = '暂无巡检记录'; return; }
+  box.innerHTML = d.run_ids.map(id => `<div class="run-item" onclick="showRun('${id}')">${id}</div>`).join('');
+}
+
+async function showRun(id) {
+  const r = await fetch(`/patrol/${id}`);
+  if (!r.ok) { document.getElementById('detail').innerHTML = `<div class="card">run ${id} 不存在</div>`; return; }
+  const d = await r.json();
+  renderDetail(id, d);
+}
+
+function renderDetail(id, d) {
+  const s = d.state || {};
+  const anomalies = s.anomalies || [];
+  const diagnoses = s.diagnoses || [];
+  const remediations = s.remediations || [];
+  const highRisk = remediations.filter(x => x.risk_level === 'high');
+
+  let html = `<div class="card"><h3>巡检 ${id}（${d.status}）</h3>`;
+
+  html += `<h4>异常（${anomalies.length}）</h4>`;
+  if (anomalies.length) {
+    html += `<table><tr><th>type</th><th>table</th><th>column</th><th>severity</th><th>evidence</th></tr>`;
+    anomalies.forEach(a => html += `<tr><td>${a.type}</td><td>${a.table}</td><td>${a.column || '-'}</td><td>${a.severity}</td><td>${a.evidence || '-'}</td></tr>`);
+    html += `</table>`;
+  }
+
+  html += `<h4>归因（${diagnoses.length}）</h4>`;
+  if (diagnoses.length) {
+    html += `<table><tr><th>root_cause</th><th>confidence</th><th>evidence_chain</th></tr>`;
+    diagnoses.forEach(x => html += `<tr><td>${x.root_cause_category}</td><td>${x.confidence}</td><td>${(x.evidence_chain || []).length} 条</td></tr>`);
+    html += `</table>`;
+  }
+
+  html += `<h4>整改方案（${remediations.length}）</h4>`;
+  if (remediations.length) {
+    html += `<table><tr><th>action</th><th>risk</th><th>方案</th></tr>`;
+    remediations.forEach(x => html += `<tr><td>${x.action_type}</td><td><span class="badge ${x.risk_level}">${x.risk_level}</span></td><td>${(x.sql_or_suggestion || '').slice(0, 120)}</td></tr>`);
+    html += `</table>`;
+  }
+
+  if (d.status === 'awaiting_approval' && highRisk.length) {
+    html += `<h4>高危审批（${highRisk.length} 条）</h4>`;
+    html += highRisk.map((x, i) =>
+      `<div>${i}: ${x.action_type} — ${(x.sql_or_suggestion || '').slice(0, 80)}</div>`).join('');
+    html += `<div style="margin-top:.6rem">
+      <button class="approve" onclick="approve('${id}', 'approved')">批准全部</button>
+      <button class="reject" onclick="approve('${id}', 'rejected')">拒绝全部</button>
+    </div>`;
+  }
+
+  if (s.report) {
+    html += `<h4>报告</h4><div class="muted">${s.report.summary || ''}</div>`;
+  }
+  html += `</div>`;
+  document.getElementById('detail').innerHTML = html;
+}
+
+async function approve(id, decision) {
+  const highRisk = []; // 后端按下标匹配 pending 顺序；这里简化：全部用同一 decision
+  const detail = document.getElementById('detail');
+  // 重新取一次拿到高危条数，构造 {"0": decision, "1": decision, ...}
+  const r = await fetch(`/patrol/${id}`);
+  const d = await r.json();
+  const n = (d.state.remediations || []).filter(x => x.risk_level === 'high').length;
+  const body = {};
+  for (let i = 0; i < n; i++) body[i] = decision;
+  const resp = await fetch(`/patrol/${id}/approve`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({decision: body})
+  });
+  const out = await resp.json();
+  status(`审批完成：${out.status}`);
+  showRun(id);
+}
+
+listRuns();
+</script>
+</body>
+</html>

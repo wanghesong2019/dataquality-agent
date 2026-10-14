@@ -58,3 +58,11 @@ def test_patrol_unknown_run_id_404():
     client = TestClient(create_app(PatrolRuntime(_mock_graph())))
     resp = client.get("/patrol/nonexistent")
     assert resp.status_code == 404
+
+
+def test_static_frontend_served(tmp_path):
+    (tmp_path / "index.html").write_text("<html>dashboard</html>", encoding="utf-8")
+    client = TestClient(create_app(PatrolRuntime(_mock_graph()), static_dir=str(tmp_path)))
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "dashboard" in resp.text
