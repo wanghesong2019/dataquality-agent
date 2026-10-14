@@ -95,7 +95,8 @@ def main() -> None:
     adapter = LLMAdapter(DeepSeekClient())
     tools = build_diagnose_tools(eval_conn, Lineage(), build_retriever())
     diagnoses = make_diagnose_node(adapter, tools)({"anomalies": detected_before})["diagnoses"]
-    remediations = make_remediate_node(adapter)({"diagnoses": diagnoses})["remediations"]
+    remediations = make_remediate_node(adapter)(
+        {"anomalies": detected_before, "diagnoses": diagnoses})["remediations"]
 
     # 5) 复检（应用 fix_sql → 重跑检测）
     detected_after = remediate_and_recheck(eval_conn, remediations, current_date, expected_schema)
