@@ -82,3 +82,20 @@ class Warehouse:
                 GROUP BY 1
                 ORDER BY 1
             """)
+
+
+def clone_warehouse(src_path: str, dst_path: str) -> None:
+    """把 src 数仓完整复制到 dst（eval 在副本上注入，不污染干净数仓）。
+
+    用 DuckDB `ATTACH` + `CREATE TABLE ... AS SELECT *` 逐表复制，保留 schema 与数据；
+    dst 已存在会先删除（eval 副本是一次性的）。
+    """
+    Path(dst_path).unlink(missing_ok=True)
+    src = duckdb.connect(src_path)
+    try:
+        tables = [t[0] for t in src.execute("SHOW TABLES").fetchall()]
+        src.execute(f"ATTACH '{dst_path}' AS dst")
+        for t in tables:
+            src.execute(f"CREATE TABLE dst.{t} AS SELECT * FROM {t}")
+    finally:
+        src.close()
