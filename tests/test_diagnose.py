@@ -45,3 +45,23 @@ def test_diagnose_max_steps_fallback():
     node = make_diagnose_node(FakeModel(), [_lineage_tool()], max_steps=2)
     result = node({"anomalies": [Anomaly(type="orphan", table="order_items")]})
     assert result["diagnoses"][0].root_cause_category == "未知"
+
+
+def test_diagnose_ignores_model_evidence_chain():
+    """模型自述 evidence_chain 时不得重复传关键字（否则 TypeError 被误降级为「未知」）。"""
+    calls = []
+
+    class FakeModel:
+        def chat(self, messages, tools=None, tool_choice=None, response_format=None):
+            calls.append(1)
+            if len(calls) == 1:
+                return {"content": "", "tool_calls": [_call("lineage", {"table": "orders"})]}
+            return {"content": "", "tool_calls": [_call("submit_diagnosis", {
+                "root_cause_category": "脏数据注入", "confidence": 0.8,
+                "evidence_chain": ["模型自述的假证据"]})]}
+
+    node = make_diagnose_node(FakeModel(), [_lineage_tool()])
+    result = node({"anomalies": [Anomaly(type="duplicate", table="orders")]})
+    d = result["diagnoses"][0]
+    assert d.root_cause_category == "脏数据注入"  # 正确解析，不 fallback
+    assert len(d.evidence_chain) == 1  # 以实际工具调用历史为准（1 次 lineage）

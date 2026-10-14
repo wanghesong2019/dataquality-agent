@@ -19,12 +19,17 @@ def _parse_remediation(resp: dict) -> Remediation:
 
 
 def make_remediate_node(model):
-    """返回整改节点函数。model 通过闭包注入（需有 .chat(messages, tools, tool_choice)）。"""
+    """返回整改节点函数。model 通过闭包注入（需有 .chat(messages, tools, tool_choice)）。
+
+    同时取 anomalies + diagnoses 配对（diagnoses[i] 对应 anomalies[i]），把异常的表/列传给 prompt，
+    否则模型不知道该改哪张表哪列。
+    """
     def remediate(state):
         remediations = []
-        for d in state.get("diagnoses", []):
+        anomalies = state.get("anomalies", [])
+        for a, d in zip(anomalies, state.get("diagnoses", [])):
             resp = model.chat(
-                [{"role": "user", "content": build_remediate_prompt(d)}],
+                [{"role": "user", "content": build_remediate_prompt(a, d)}],
                 tools=[SUBMIT_REMEDIATION_SCHEMA],
                 tool_choice={"type": "function", "function": {"name": "submit_remediation"}},
             )

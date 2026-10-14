@@ -11,7 +11,10 @@ def test_build_diagnose_tools(mini_warehouse):
     retriever.index([{"id": "c1", "text": "订单 主键 重复"}])
 
     tools = build_diagnose_tools(conn, Lineage(), retriever)
-    assert {t.name for t in tools} == {"lineage", "cases", "sql"}
+    assert {t.name for t in tools} == {"schema", "lineage", "cases", "sql"}
+
+    schema = next(t for t in tools if t.name == "schema")
+    assert "order_id" in schema.func({"table": "orders"})  # 能查到列名
 
     lineage = next(t for t in tools if t.name == "lineage")
     assert "orders" in lineage.func({"table": "order_items"})  # order_items 上游含 orders

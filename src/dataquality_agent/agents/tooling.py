@@ -1,16 +1,20 @@
-"""归因 Agent 的工具构造（lineage / cases / sql）。"""
+"""归因 Agent 的工具构造（schema / lineage / cases / sql）。"""
 from dataquality_agent.prompts import Tool
+from dataquality_agent.tools.metadata import get_table_schema
 from dataquality_agent.tools.sql import SafeSQL
 
 
 def build_diagnose_tools(conn, lineage, retriever, sql_whitelist=None) -> list[Tool]:
-    """构造归因 Agent 的三个工具：lineage / cases / sql（只读）。
+    """构造归因 Agent 的工具：schema / lineage / cases / sql（只读）。
 
     sql 的只读护栏走 SafeSQL；表白名单缺省 = 当前数仓的全部表（从 SHOW TABLES 派生）。
     """
     whitelist = sql_whitelist or {t[0] for t in conn.execute("SHOW TABLES").fetchall()}
     safe_sql = SafeSQL(conn, whitelist)
     return [
+        Tool(name="schema", description="查某张表的列名与类型（DESCRIBE），写 SQL 前先查 schema 确认列名",
+             parameters={"type": "object", "properties": {"table": {"type": "string"}}, "required": ["table"]},
+             func=lambda args: str(get_table_schema(conn, args["table"]))),
         Tool(name="lineage", description="查某张表的上游血缘（它依赖哪些上游表）",
              parameters={"type": "object", "properties": {"table": {"type": "string"}}, "required": ["table"]},
              func=lambda args: str(lineage.upstream(args["table"]))),
