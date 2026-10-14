@@ -1,14 +1,14 @@
 """集中配置：路径、随机种子、检测阈值。"""
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
 @dataclass
 class Settings:
-    # 路径
-    data_dir: str = "/data/home/hermes/olist"
-    db_path: str = "/data/home/hermes/projects/dataquality-agent/data/warehouse.duckdb"
+    # 路径（env 可覆盖：DATA_DIR / DB_PATH，方便 Docker 部署）
+    data_dir: str = field(default_factory=lambda: os.environ.get("DATA_DIR", "/data/home/hermes/olist"))
+    db_path: str = field(default_factory=lambda: os.environ.get("DB_PATH", "/data/home/hermes/projects/dataquality-agent/data/warehouse.duckdb"))
     # 可复现性（评估的地基：异常注入必须可复现）
     seed: int = 42
     # L0 阈值

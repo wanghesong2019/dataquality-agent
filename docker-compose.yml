@@ -1,0 +1,16 @@
+services:
+  dataquality-agent:
+    build: .
+    container_name: dataquality-agent
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - EMBEDDING_BASE_URL=${EMBEDDING_BASE_URL:-http://vllm-bge-m3:8000/v1}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-BAAI/bge-m3}
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-}
+      - DATA_DIR=/data/olist
+      - DB_PATH=/data/warehouse.duckdb
+    volumes:
+      - ./data:/data
