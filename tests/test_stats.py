@@ -1,6 +1,7 @@
 from dataquality_agent.data.lineage import Lineage
 from dataquality_agent.detection.stats import (
     zscore_detect, psi, check_freshness, schema_diff, detect_lineage_break,
+    detect_freshness, detect_schema_drift,
 )
 
 
@@ -48,3 +49,19 @@ def test_lineage_break_no_lag():
     lineage = Lineage()
     watermarks = {"orders": "2018-10-17", "order_items": "2018-10-17", "daily_metrics": "2018-10-17"}
     assert detect_lineage_break(watermarks, lineage, max_lag_days=1) == []
+
+
+def test_detect_freshness():
+    watermarks = {"orders": "2018-01-01", "daily_metrics": "2018-01-05"}
+    anomalies = detect_freshness(watermarks, "2018-01-06", max_gap_days=1)
+    # orders 落后 5 天 → 报；daily_metrics 落后 1 天 → 不报
+    assert {a.type: a.table for a in anomalies} == {"freshness": "orders"}
+
+
+def test_detect_schema_drift():
+    curr = {"dwd_orders": {"a": "INTEGER"}}
+    expected = {"dwd_orders": {"a": "INTEGER", "b": "VARCHAR"}}
+    anomalies = detect_schema_drift(curr, expected)
+    assert len(anomalies) == 1
+    assert anomalies[0].type == "schema_drift"
+    assert "removed:b" in anomalies[0].evidence

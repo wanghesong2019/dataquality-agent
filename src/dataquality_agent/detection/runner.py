@@ -34,8 +34,15 @@ def _watermarks(conn) -> dict[str, str]:
     return wm
 
 
-def run_detection(conn: duckdb.DuckDBPyConnection) -> DetectionReport:
-    """跑全部检测（dataset 级 → column 级，本阶段顺序简化），返回报告 + 各检查耗时。"""
+def run_detection(conn: duckdb.DuckDBPyConnection,
+                  current_date: str | None = None,
+                  expected_schema: dict | None = None) -> DetectionReport:
+    """跑全部检测（dataset 级 → column 级），返回报告 + 各检查耗时。
+
+    - current_date：freshness 的参照日期（ISO 字符串）；缺省 = 数据全局最新水位线（干净数据不误报）。
+    - expected_schema：schema 漂移的期望快照 {table: {col: type}}；缺省跳过 schema 检测
+      （需要从干净数仓捕获，eval harness 会传入）。
+    """
     report = DetectionReport()
 
     t0 = time.time()
@@ -43,8 +50,25 @@ def run_detection(conn: duckdb.DuckDBPyConnection) -> DetectionReport:
     report.stats["l0_rules"] = round(time.time() - t0, 4)
 
     t0 = time.time()
-    report.anomalies += stats.detect_lineage_break(_watermarks(conn), Lineage())
+    watermarks = _watermarks(conn)
+    report.anomalies += stats.detect_lineage_break(watermarks, Lineage())
     report.stats["l1_lineage"] = round(time.time() - t0, 4)
+
+    t0 = time.time()
+    if current_date is None:
+        current_date = max(watermarks.values()) if watermarks else None
+    if current_date:
+        report.anomalies += stats.detect_freshness(watermarks, current_date)
+    report.stats["l1_freshness"] = round(time.time() - t0, 4)
+
+    t0 = time.time()
+    if expected_schema:
+        curr_schema = {
+            t: {r[0]: r[1] for r in conn.execute(f"DESCRIBE {t}").fetchall()}
+            for t in expected_schema
+        }
+        report.anomalies += stats.detect_schema_drift(curr_schema, expected_schema)
+    report.stats["l1_schema"] = round(time.time() - t0, 4)
 
     t0 = time.time()
     report.anomalies += run_semantic_checks(conn)

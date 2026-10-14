@@ -81,3 +81,31 @@ def detect_lineage_break(watermarks: dict[str, str], lineage: Lineage,
                     metric_value=lag, expected_range=f"<= {max_lag_days} 天",
                 ))
     return anomalies
+
+
+def detect_freshness(watermarks: dict[str, str], current_date: str,
+                     max_gap_days: int = 1) -> list[Anomaly]:
+    """数据停更：各表水位线落后 current_date 超 max_gap_days 则报 freshness。"""
+    anomalies: list[Anomaly] = []
+    for table, wm in watermarks.items():
+        if check_freshness([wm], current_date, max_gap_days):
+            gap = (date.fromisoformat(current_date) - date.fromisoformat(wm)).days
+            anomalies.append(Anomaly(
+                type="freshness", table=table,
+                evidence=f"{table} 水位线 {wm} 落后当前 {current_date}（滞后 {gap} 天）",
+                metric_value=gap, expected_range=f"<= {max_gap_days} 天",
+            ))
+    return anomalies
+
+
+def detect_schema_drift(curr_schema: dict, expected_schema: dict) -> list[Anomaly]:
+    """schema 漂移：当前 schema 与期望快照逐表 diff，有变更则报。"""
+    anomalies: list[Anomaly] = []
+    for table, expected in expected_schema.items():
+        changes = schema_diff(expected, curr_schema.get(table, {}))
+        if changes:
+            anomalies.append(Anomaly(
+                type="schema_drift", table=table,
+                evidence="; ".join(changes),
+            ))
+    return anomalies
