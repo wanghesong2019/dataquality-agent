@@ -43,12 +43,13 @@ def load_env(path: Path) -> None:
 # 注入计划：可逆（duplicate/value_range）+ 数据丢失（orphan/null_rate），n 按真实数据量定。
 # null_rate 要超 5% 阈值，delivered 约 9.9w 单 → n 需 ~6000。
 INJECTION_SPECS = [
+    # 顺序注意：orphan 先删 20 单，duplicate 再复制 3 单，避免 orphan 删掉 duplicate 复制的行
+    {"type": "orphan", "child_table": "order_items", "parent_table": "orders",
+     "parent_pk": "order_id", "child_fk": "order_id", "n": 20},
     {"type": "duplicate", "table": "orders", "key_cols": ["order_id"], "n": 3},
     {"type": "value_range", "table": "order_items", "column": "price", "key_cols": ["order_id", "order_item_id"], "n": 3},
     {"type": "null_rate", "table": "orders", "column": "order_delivered_customer_date",
      "status_col": "order_status", "status_value": "delivered", "key_cols": ["order_id"], "n": 6000},
-    {"type": "orphan", "child_table": "order_items", "parent_table": "orders",
-     "parent_pk": "order_id", "child_fk": "order_id", "n": 20},
 ]
 
 # 历史案例库（喂给 RAG 的 cases 工具）

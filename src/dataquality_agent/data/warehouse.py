@@ -87,15 +87,24 @@ class Warehouse:
 def clone_warehouse(src_path: str, dst_path: str) -> None:
     """把 src 数仓完整复制到 dst（eval 在副本上注入，不污染干净数仓）。
 
-    用 DuckDB `ATTACH` + `CREATE TABLE ... AS SELECT *` 逐表复制，保留 schema 与数据；
-    dst 已存在会先删除（eval 副本是一次性的）。
+    用 DuckDB `EXPORT/IMPORT DATABASE`（走临时目录）。不用 ATTACH：ATTACH 的文件句柄在
+    close 后仍残留，会导致后续 connect(dst) 报 "already attached" 冲突。
     """
+    import shutil
+    import tempfile
+
     Path(dst_path).unlink(missing_ok=True)
-    src = duckdb.connect(src_path)
+    tmp = tempfile.mkdtemp(prefix="dqa_clone_")
     try:
-        tables = [t[0] for t in src.execute("SHOW TABLES").fetchall()]
-        src.execute(f"ATTACH '{dst_path}' AS dst")
-        for t in tables:
-            src.execute(f"CREATE TABLE dst.{t} AS SELECT * FROM {t}")
+        src = duckdb.connect(src_path)
+        try:
+            src.execute(f"EXPORT DATABASE '{tmp}'")
+        finally:
+            src.close()
+        dst = duckdb.connect(dst_path)
+        try:
+            dst.execute(f"IMPORT DATABASE '{tmp}'")
+        finally:
+            dst.close()
     finally:
-        src.close()
+        shutil.rmtree(tmp, ignore_errors=True)
