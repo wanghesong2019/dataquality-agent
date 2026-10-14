@@ -12,7 +12,10 @@ def _build_prompt(anomaly: Anomaly, history: list[str]) -> str:
     # TODO(M3/M4)：结构化输出增强——改用 Pydantic→JSON Schema 强制（with_structured_output / function calling），
     # 替换下面 prompt 里手写的 JSON schema。手写 schema 依赖模型"猜对"字段名，猜错会静默 fallback 成 unknown。
     lines.append(
-        "可用工具：lineage / cases / sql。用 TOOL:<name>:<arg> 调用工具，或输出 JSON 给出根因。"
+        "可用工具（用 TOOL:<name>:<arg> 调用，或输出 JSON 给出根因）：\n"
+        "  - lineage <表名>：查该表的上游血缘（返回它依赖哪些上游表）\n"
+        "  - cases <查询词>：在历史案例库检索相似异常案例（返回案例的根因+整改）\n"
+        "  - sql <SQL>：执行只读诊断 SQL（返回查询结果行）\n"
         'JSON 字段必须为：{"root_cause_category": "字符串", "confidence": 0到1的浮点数}。'
         'root_cause_category 必须从以下枚举选一：上游任务失败 / 上游数据延迟 / ETL逻辑变更 / '
         'schema变更 / 业务真实波动(非异常) / 数据倾斜 / 脏数据注入 / 未知。'
