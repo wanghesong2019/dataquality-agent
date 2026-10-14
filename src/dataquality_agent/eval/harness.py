@@ -34,11 +34,14 @@ def apply_remediation(conn, remediation) -> bool:
         return False
 
 
-def remediate_and_recheck(conn, remediations) -> list:
-    """应用 fix_sql 整改 → 重跑检测，返回修复后的异常列表（复检口径）。"""
+def remediate_and_recheck(conn, remediations, current_date=None, expected_schema=None) -> list:
+    """应用 fix_sql 整改 → 重跑检测，返回修复后的异常列表（复检口径）。
+
+    current_date / expected_schema 透传给 run_detection，保证复检和初检用同一基线。
+    """
     for r in remediations:
         apply_remediation(conn, r)
-    return run_detection(conn).anomalies
+    return run_detection(conn, current_date=current_date, expected_schema=expected_schema).anomalies
 
 
 def remediation_success_by_reversibility(detected_before, detected_after, injected) -> dict:
