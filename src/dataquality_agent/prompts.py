@@ -64,3 +64,10 @@ SUBMIT_DIAGNOSIS_SCHEMA = {
         "parameters": Diagnosis.model_json_schema(),
     },
 }
+
+
+# ---- 报告（report）----
+
+def build_report_prompt(anomaly_count: int, remediation_count: int) -> str:
+    """报告 prompt：给汇总数字 → 生成一句总结。"""
+    return f"汇总：{anomaly_count} 个异常，{remediation_count} 个整改方案"
