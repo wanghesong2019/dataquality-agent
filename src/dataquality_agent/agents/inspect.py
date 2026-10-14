@@ -8,11 +8,15 @@ LangGraph 里每个节点是一个"纯函数"：输入 = 到目前为止的完�
 a) conn 闭包注入：
    make_inspect_node(conn) 是"返回函数的函数"（工厂）。它返回的 inspect 函数"记住了" conn
    （闭包），即使 make_inspect_node 已经 return 了，inspect 后面被调用时依然能访问 conn。
+   [答 Why] 内层函数定义时会捕获外层作用域变量，存在函数对象的 __closure__（元组，叫"闭包单元"）
+   里；只要内层函数对象还活着（被 node 引用），闭包单元就持续持有 conn 的引用，conn 不会被垃圾
+   回收、也不会失效。闭包的核心：函数"带走"了它定义时所在的作用域。
    为什么 conn 不走 state 传？因为 state 要能被序列化——LangGraph 要用 checkpointer 把 state
    存盘（HITL 暂停/恢复时）、在节点间传递，而 conn 是一个 DuckDB 活连接（文件句柄、锁、
    游标状态），没法序列化。
    原则：state 只放数据（可序列化：str/list/Pydantic 模型）；依赖（数据库连接、模型客户端、
    工具）一律走闭包注入。diagnose/remediate 里的 model、tools 也是同样的闭包注入。
+
 
 b) state 来自哪里：
    state 是 LangGraph 引擎传进来的，不是手动构造的。graph.invoke(初始state, config) 时，
@@ -21,6 +25,12 @@ b) state 来自哪里：
    就是你 invoke 时传进去的初始 state（比如 {"run_id": "r1"}）。
    注意：inspect 其实没读 state（它不需要 run_id），直接调 run_detection(conn) 干活——
    节点可以忽略输入。
+   [答 How] LangGraph 内部（Pregel 循环）就是普通函数调用：
+       state = input                            # 初始 state = 你 invoke 传的 {"run_id":"r1"}
+       for node in [inspect, diagnose, ...]:    # 按边依次取节点
+           update = node(state)                 # 把当前 state 作为参数调节点
+           state = {**state, **update}          # 把返回值（部分更新）合并进 state
+   所以"状态传递"的本质 = 一个 dict 被当作参数一路传下去、一路被 merge。
 
 c) return {"anomalies": report.anomalies} 返回什么？给谁？状态怎么更新？
    这不是返回完整 state，而是返回一个"部分更新字典"，语义是"把 state 的 anomalies 键
