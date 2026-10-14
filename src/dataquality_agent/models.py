@@ -29,10 +29,10 @@ class Diagnosis(BaseModel):
 class Remediation(BaseModel):
     """整改 Agent 的产出：修复方案 + 风险等级。"""
 
-    action_type: str  # fix_sql / add_rule / ticket / alert
-    sql_or_suggestion: str
-    risk_level: str = "low"  # low / medium / high
-    anomaly_id: str | None = None
+    action_type: str = Field(description="修复动作类型：fix_sql(修复SQL) / add_rule(新增质量规则) / ticket(生成工单) / alert(告警通知)")
+    sql_or_suggestion: str = Field(description="修复 SQL 或建议文本")
+    risk_level: str = Field(default="low", description="风险等级 low/medium/high；涉及 DELETE/UPDATE 生产表、金额字段、权限变更 → high")
+    anomaly_id: str | None = Field(default=None, description="对应的异常 ID")
 
     @property
     def requires_approval(self) -> bool:
