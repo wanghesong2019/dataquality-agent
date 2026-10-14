@@ -1,5 +1,7 @@
 """集中配置：路径、随机种子、检测阈值。"""
+import os
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass
@@ -14,3 +16,16 @@ class Settings:
     # L1 阈值
     zscore_threshold: float = 3.0  # volume 异常 Z-score 阈值
     psi_threshold: float = 0.10  # distribution 漂移 PSI 阈值
+
+
+def load_env(path) -> None:
+    """极简 .env loader（KEY=VALUE，不依赖 python-dotenv；已有环境变量不覆盖）。"""
+    p = Path(path)
+    if not p.exists():
+        return
+    for line in p.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        os.environ.setdefault(k.strip(), v.strip())

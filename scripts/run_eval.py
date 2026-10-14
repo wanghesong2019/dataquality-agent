@@ -3,7 +3,6 @@
 用法：cd 项目根 && python3 scripts/run_eval.py
 前提：.env 里有 DEEPSEEK_API_KEY；数据在 Settings.data_dir。
 """
-import os
 import sys
 from pathlib import Path
 
@@ -13,7 +12,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from dataquality_agent.agents.diagnose import make_diagnose_node
 from dataquality_agent.agents.remediate import make_remediate_node
 from dataquality_agent.agents.tooling import build_diagnose_tools
-from dataquality_agent.config import Settings
+from dataquality_agent.config import Settings, load_env
 from dataquality_agent.data.injector import Injector
 from dataquality_agent.data.lineage import Lineage
 from dataquality_agent.data.warehouse import Warehouse, clone_warehouse
@@ -25,20 +24,7 @@ from dataquality_agent.eval.harness import (
 )
 from dataquality_agent.llm import DeepSeekClient, LLMAdapter
 from dataquality_agent.observability.tracing import Tracer
-from dataquality_agent.rag.embedder import build_embedder
-from dataquality_agent.rag.retriever import Retriever
-
-
-def load_env(path: Path) -> None:
-    """极简 .env loader（KEY=VALUE，不依赖 python-dotenv）。"""
-    if not path.exists():
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        os.environ.setdefault(k.strip(), v.strip())
+from dataquality_agent.rag.cases import build_retriever
 
 
 # 注入计划：可逆（duplicate/value_range）+ 数据丢失（orphan/null_rate），n 按真实数据量定。
@@ -52,23 +38,6 @@ INJECTION_SPECS = [
     {"type": "null_rate", "table": "orders", "column": "order_delivered_customer_date",
      "status_col": "order_status", "status_value": "delivered", "key_cols": ["order_id"], "n": 6000},
 ]
-
-# 历史案例库（喂给 RAG 的 cases 工具）
-CASES = [
-    {"id": "dup_orders", "text": "orders 表 order_id 主键重复，上游 ETL 去重逻辑失效，根因脏数据注入，整改去重 DELETE"},
-    {"id": "neg_price", "text": "order_items 价格出现负值，数据录入错误，根因脏数据注入，整改回填正确价格"},
-    {"id": "null_delivery", "text": "delivered 订单交付日期为 null，数据采集缺失，根因脏数据注入，整改回填日期"},
-    {"id": "orphan_items", "text": "order_items 出现孤儿外键，上游 orders 行被删，根因上游任务失败，整改重跑上游加载"},
-]
-
-
-def build_retriever() -> Retriever:
-    """案例检索器：配了 EMBEDDING_* 用 OpenAIEmbedder(BGE-M3)，否则词袋 fallback。"""
-    vocab = sorted({w for c in CASES for w in c["text"].split()})
-    r = Retriever(build_embedder(vocab))
-    r.index(CASES)
-    return r
-
 
 def main() -> None:
     load_env(ROOT / ".env")
