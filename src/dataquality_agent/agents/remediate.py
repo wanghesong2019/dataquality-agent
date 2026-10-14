@@ -9,6 +9,7 @@ def make_remediate_node(model):
     def remediate(state):
         remediations = []
         for d in state.get("diagnoses", []):
+            # TODO(M3/M4)：同 diagnose——改用结构化输出（Pydantic→JSON Schema 强制）替换手写 JSON schema。
             prompt = (
                 f"根因：{d.root_cause_category}（置信度 {d.confidence}）。给出修复方案。"
                 '输出 JSON，字段必须为：{"action_type": "fix_sql/add_rule/ticket/alert", '
