@@ -9,7 +9,10 @@ def _build_prompt(anomaly: Anomaly, history: list[str]) -> str:
         f"异常：type={anomaly.type}, table={anomaly.table}, column={anomaly.column or '-'}",
     ]
     lines += [f"历史：{h}" for h in history]
-    lines.append("可用工具：lineage / cases / sql。用 TOOL:<name>:<arg> 调用工具，或输出 JSON 给出根因。")
+    lines.append(
+        "可用工具：lineage / cases / sql。用 TOOL:<name>:<arg> 调用工具，或输出 JSON 给出根因；"
+        'JSON 字段必须为：{"root_cause_category": "字符串", "confidence": 0到1的浮点数}'
+    )
     return "\n".join(lines)
 
 
