@@ -58,3 +58,10 @@ class OpenAIEmbedder(Embedder):
         # 服务端返回不一定按输入顺序，按 index 排序保证一一对应
         data = sorted(resp.json()["data"], key=lambda d: d["index"])
         return [d["embedding"] for d in data]
+
+
+def build_embedder(vocab: list[str]) -> Embedder:
+    """按 env 选择 embedding：配了 EMBEDDING_BASE_URL + EMBEDDING_MODEL 用 OpenAIEmbedder（BGE-M3），否则词袋 fallback。"""
+    if os.environ.get("EMBEDDING_BASE_URL") and os.environ.get("EMBEDDING_MODEL"):
+        return OpenAIEmbedder()
+    return BagOfWordsEmbedder(vocab)

@@ -1,4 +1,4 @@
-from dataquality_agent.rag.embedder import BagOfWordsEmbedder, OpenAIEmbedder
+from dataquality_agent.rag.embedder import BagOfWordsEmbedder, OpenAIEmbedder, build_embedder
 from dataquality_agent.rag.retriever import Retriever
 
 CASES = [
@@ -57,3 +57,15 @@ def test_openai_embedder_calls_embeddings_endpoint(monkeypatch):
     assert captured["headers"]["Authorization"] == "Bearer sk-x"
     # 按 index 排序，保证返回顺序和输入一致
     assert vecs == [[0.3, 0.4], [0.1, 0.2]]
+
+
+def test_build_embedder_selects_openai_when_configured(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_BASE_URL", "http://x/v1")
+    monkeypatch.setenv("EMBEDDING_MODEL", "BAAI/bge-m3")
+    assert isinstance(build_embedder(["a"]), OpenAIEmbedder)
+
+
+def test_build_embedder_falls_back_to_bow(monkeypatch):
+    monkeypatch.delenv("EMBEDDING_BASE_URL", raising=False)
+    monkeypatch.delenv("EMBEDDING_MODEL", raising=False)
+    assert isinstance(build_embedder(["a"]), BagOfWordsEmbedder)

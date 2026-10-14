@@ -24,7 +24,7 @@ from dataquality_agent.eval.harness import (
     run_eval,
 )
 from dataquality_agent.llm import DeepSeekClient, LLMAdapter
-from dataquality_agent.rag.embedder import BagOfWordsEmbedder
+from dataquality_agent.rag.embedder import build_embedder
 from dataquality_agent.rag.retriever import Retriever
 
 
@@ -61,9 +61,9 @@ CASES = [
 
 
 def build_retriever() -> Retriever:
-    """词袋案例检索器（P2 部署 BGE-M3 后换 OpenAIEmbedder）。"""
+    """案例检索器：配了 EMBEDDING_* 用 OpenAIEmbedder(BGE-M3)，否则词袋 fallback。"""
     vocab = sorted({w for c in CASES for w in c["text"].split()})
-    r = Retriever(BagOfWordsEmbedder(vocab))
+    r = Retriever(build_embedder(vocab))
     r.index(CASES)
     return r
 
