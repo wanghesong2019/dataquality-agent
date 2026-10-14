@@ -6,8 +6,8 @@ from dataquality_agent.models import Anomaly
 def test_evaluate_detection_perfect():
     detected = [Anomaly(type="duplicate", table="orders"), Anomaly(type="orphan", table="order_items")]
     injected = [
-        InjectedAnomaly(type="duplicate", table="orders", root_cause="dup", location="orders"),
-        InjectedAnomaly(type="orphan", table="order_items", root_cause="del", location="order_items"),
+        InjectedAnomaly(type="duplicate", table="orders", root_cause="dup", root_cause_category="脏数据注入", location="orders"),
+        InjectedAnomaly(type="orphan", table="order_items", root_cause="del", root_cause_category="上游任务失败", location="order_items"),
     ]
     r = evaluate_detection(detected, injected)
     assert (r.tp, r.fp, r.fn) == (2, 0, 0)
@@ -17,8 +17,8 @@ def test_evaluate_detection_perfect():
 def test_evaluate_detection_fp_and_fn():
     detected = [Anomaly(type="duplicate", table="orders")]  # 漏检 orphan
     injected = [
-        InjectedAnomaly(type="duplicate", table="orders", root_cause="dup", location="orders"),
-        InjectedAnomaly(type="orphan", table="order_items", root_cause="del", location="order_items"),
+        InjectedAnomaly(type="duplicate", table="orders", root_cause="dup", root_cause_category="脏数据注入", location="orders"),
+        InjectedAnomaly(type="orphan", table="order_items", root_cause="del", root_cause_category="上游任务失败", location="order_items"),
     ]
     r = evaluate_detection(detected, injected)
     assert (r.tp, r.fp, r.fn) == (1, 0, 1)
@@ -27,7 +27,7 @@ def test_evaluate_detection_fp_and_fn():
 
 def test_evaluate_detection_false_positive():
     detected = [Anomaly(type="value_range", table="orders")]  # 误报：没注入这个
-    injected = [InjectedAnomaly(type="duplicate", table="orders", root_cause="dup", location="orders")]
+    injected = [InjectedAnomaly(type="duplicate", table="orders", root_cause="dup", root_cause_category="脏数据注入", location="orders")]
     r = evaluate_detection(detected, injected)
     assert (r.tp, r.fp, r.fn) == (0, 1, 1)
     assert r.precision == 0.0
