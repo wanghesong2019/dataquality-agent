@@ -11,6 +11,22 @@ def build_diagnose_tools(conn, lineage, retriever, sql_whitelist=None) -> list[T
     """
     whitelist = sql_whitelist or {t[0] for t in conn.execute("SHOW TABLES").fetchall()}
     safe_sql = SafeSQL(conn, whitelist)
+
+    # cases 工具真实命中的案例 ID 累积在这里，供 diagnose 回填 matched_cases（以真实命中为准，防模型自述幻觉）
+    matched_case_ids: list[str] = []
+
+    def cases_func(args: dict) -> str:
+        results = retriever.search(args["query"], k=3)
+        for r in results:
+            if r["id"] not in matched_case_ids:
+                matched_case_ids.append(r["id"])
+        return str(results)
+
+    cases_tool = Tool(name="cases", description="在历史案例库检索相似异常案例（返回案例根因+整改）",
+                      parameters={"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
+                      func=cases_func)
+    cases_tool.matched_case_ids = matched_case_ids  # 供 diagnose 读取真实命中
+
     return [
         Tool(name="schema", description="查某张表的列名与类型（DESCRIBE），写 SQL 前先查 schema 确认列名",
              parameters={"type": "object", "properties": {"table": {"type": "string"}}, "required": ["table"]},
@@ -18,9 +34,7 @@ def build_diagnose_tools(conn, lineage, retriever, sql_whitelist=None) -> list[T
         Tool(name="lineage", description="查某张表的上游血缘（它依赖哪些上游表）",
              parameters={"type": "object", "properties": {"table": {"type": "string"}}, "required": ["table"]},
              func=lambda args: str(lineage.upstream(args["table"]))),
-        Tool(name="cases", description="在历史案例库检索相似异常案例（返回案例根因+整改）",
-             parameters={"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
-             func=lambda args: str(retriever.search(args["query"], k=3))),
+        cases_tool,
         Tool(name="sql", description="执行只读诊断 SQL（仅 SELECT）",
              parameters={"type": "object", "properties": {"sql": {"type": "string"}}, "required": ["sql"]},
              func=lambda args: str(safe_sql.run(args["sql"]))),
