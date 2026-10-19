@@ -1,0 +1,2 @@
+# 统一换行符：提交时自动归一化 CRLF→LF（Windows 本地 CRLF / Linux 服务器 LF 混用导致 diff 膨胀）
+* text=auto
