@@ -9,6 +9,7 @@ class Settings:
     # 路径（env 可覆盖：DATA_DIR / DB_PATH，方便 Docker 部署）
     data_dir: str = field(default_factory=lambda: os.environ.get("DATA_DIR", "/data/home/hermes/olist"))
     db_path: str = field(default_factory=lambda: os.environ.get("DB_PATH", "/data/home/hermes/projects/dataquality-agent/data/warehouse.duckdb"))
+    checkpoint_path: str = field(default_factory=lambda: os.environ.get("CHECKPOINT_PATH", "/data/home/hermes/projects/dataquality-agent/data/checkpoints.sqlite"))
     # 可复现性（评估的地基：异常注入必须可复现）
     seed: int = 42
     # L0 阈值

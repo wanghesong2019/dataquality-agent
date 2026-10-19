@@ -277,7 +277,7 @@
 - 两个前提：① build_graph 传 checkpointer ② 两次 invoke 用同一个 `thread_id`。
 
 **本项目怎么答**：
-> 我的审批节点用 `interrupt({"pending": [...]})` 把高危整改清单吐给前端，人工在前端点 approve/reject，后端 `Command(resume=decision)` 恢复（`agents/hitl.py:46`、`api/runtime.py:44`）。关键设计：**只有高危方案才进审批**（`Remediation.requires_approval`，`models.py:37`），低危直接走报告——减少打断。**诚实边界**：现在 checkpointer 是 MemorySaver（demo，`api/wiring.py:39`），生产要换持久化，否则进程重启审批状态就丢了。
+> 我的审批节点用 `interrupt({"pending": [...]})` 把高危整改清单吐给前端，人工在前端点 approve/reject，后端 `Command(resume=decision)` 恢复（`agents/hitl.py:46`、`api/runtime.py:44`）。关键设计：**只有高危方案才进审批**（`Remediation.requires_approval`，`models.py:37`），低危直接走报告——减少打断。**Checkpointer（已修复）**：已从 `MemorySaver` 换成 `SqliteSaver`（`api/wiring.py`），审批状态落盘 SQLite、跨进程重启不丢；更高并发/多实例再换 Postgres。
 
 **来源**：LangGraph 官方文档（HITL / Interrupts）+ CSDN《LangGraph 1.2 持久化与人工审核》。
 
@@ -343,7 +343,7 @@
 
 **本项目怎么答**：
 > 每次 LLM 调用都埋一个 `Span`（记录输入/输出/token/耗时），`CostLedger` 累计 token/成本/调用次数（`observability/tracing.py:34`、`llm.py`）。可观测是**旁路**——Langfuse 惰性导入、未配置就 no-op，保证监控挂了不拖垮主流程（`observability/tracing.py:64`）。评估报告里直接输出 `total_tokens/total_cost/llm_calls/latency`（`eval/metrics.py:33`），所以"单次巡检 ~78 万 token / ~39s"是有账可查的。
-> **诚实边界**：token 是**按字符数估算**的（`llm.py:7` 的 `_estimate_tokens`，生产该换 tokenizer 或用 API 返回的 usage），成本数字是量级正确、不是精确到分。
+> **Token 计数（已修复）**：从「按字符估算」改为**读 API 返回的 `usage.total_tokens` 真实计数**（`llm.py:20` 的 `_count_tokens`），客户端不返回 usage 时才回退字符估算兜底。所以"78 万 token"现在有 API 依据，成本台账可信。
 
 **来源**：agent-interview observability + 阿里云《RDS Agent 可观测》。
 
@@ -372,9 +372,9 @@
 
 ### 🔴 P0 —— 会被问穿、且影响"数字可信度"的硬伤（先补）
 
-1. **Token 计数换成真实值**（`llm.py:7`）：现在按字符估算，"78 万 token"这个面试必报的数字经不起追问。改成读 DeepSeek 返回的 `usage` 字段，成本台账才可信。
+1. ~~**Token 计数换成真实值**~~ ✅ **已完成**（`llm.py` 读 `usage.total_tokens`，101 tests passed，已提交 `8c35e48`）。
 2. **LLM-as-Judge 校准闭环**（`eval/judge.py:59`）：`judge_agreement` 写了但没跑过人工抽检。面试问"你的 judge 一致性多少"，现在答不上来。补一个最小的人工标注集（哪怕 10 条）跑出数字。
-3. **HITL 换持久化 checkpointer**（`api/wiring.py:39`）：MemorySaver → SqliteSaver 一行之隔，但"进程重启审批状态丢失"是高频追问点，换掉即闭环。
+3. ~~**HITL 换持久化 checkpointer**~~ ✅ **已完成**（`api/wiring.py` 换 `SqliteSaver` + `config.py` 加 `checkpoint_path` + `pyproject.toml` 加 `langgraph-checkpoint-sqlite`，101 tests passed）。
 4. **matched_cases 像 evidence_chain 一样回填**（`agents/diagnose.py`）：堵住"没查案例却谎称命中"的洞，把"证据幻觉"这个故事讲圆满。
 
 ### 🟡 P1 —— 高频考点，可"讲"但要有依据
@@ -405,5 +405,5 @@
 - **防幻觉**：证据闸门 + evidence_chain 以真实调用为准（丢弃自述）。
 - **安全**：SafeSQL 只读白名单，工具层断掉 DELETE。
 - **评估**：ground-truth 对齐 + 复检口径 + 可逆/丢失分型；LLM-as-Judge 配人工校准。
-- **数字**：F1=1.0 / 归因 0.75 / 整改 0.50（可逆 1.0 · 丢失 0.0）/ 端到端 0.50 / ~39s / ~78 万 token（注：token 待换真实计数）。
-- **诚实边界**：L2 暂缓、RAG 无 rerank、token 估算、MemorySaver——每个都能变成"我清楚这里为什么这样做、下一步怎么补"的加分叙事。
+- **数字**：F1=1.0 / 归因 0.75 / 整改 0.50（可逆 1.0 · 丢失 0.0）/ 端到端 0.50 / ~39s / ~78 万 token（真实 usage 计数）。
+- **诚实边界**：L2 暂缓、RAG 无 rerank——每个都能变成"我清楚这里为什么这样做、下一步怎么补"的加分叙事。
