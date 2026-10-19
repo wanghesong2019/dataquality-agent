@@ -10,8 +10,10 @@
 本身有 bias/随机性，所以配 `judge_agreement` 做"人工抽检校准"：人工标 10%，比对 LLM
 分 vs 人工分的一致率，达标才敢信这个"法官"。
 
-结构化输出 + 降级：`build_judge_prompt` 强制输出 JSON `{维度: 分, rationale}`；`judge`
-解析失败时每个维度降级 1 分（最差），不抛异常——和模型输出护栏同一套原则。
+结构化输出 + 降级：用 function calling（`submit_judge_score` 工具 + tool_choice）把打分
+约束成 schema 硬校验——维度名由 rubric 动态生成、类型强制整数 1~5，从源头消除"格式失败
+被伪装成低分"。`judge` 解析仍失败时每个维度降级 1 分（最差），不抛异常——和模型输出护栏
+同一套原则。
 """
 import json
 
@@ -45,15 +47,47 @@ def build_judge_prompt(anomaly, output, rubric: Rubric) -> str:
     )
 
 
+def _judge_schema(rubric: Rubric) -> dict:
+    """把 rubric 维度动态转成 function calling 的 JSON Schema（维度名 → 1~5 整数）。
+
+    坑：维度名不能含空格——DeepSeek 的 function calling 会把含空格的 property name 截断
+    （如 "action_type 归类" 被生成成 "action_type，缺失闭合引号），导致 arguments JSON
+    解析失败、全维度兜底 1 分。所以 rubric.dimensions 必须用紧凑无空格的键名。
+    """
+    return {
+        "type": "function",
+        "function": {
+            "name": "submit_judge_score",
+            "description": "按 rubric 给一条产出打分",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    **{d: {"type": "integer", "minimum": 1, "maximum": 5} for d in rubric.dimensions},
+                    "rationale": {"type": "string"},
+                },
+                "required": rubric.dimensions,
+            },
+        },
+    }
+
+
 def judge(model, anomaly, output, rubric: Rubric) -> JudgeScore:
-    """调 LLM 按 rubric 打分，返回结构化 JudgeScore。model 是可调用对象（返回字符串）。"""
-    resp = model(build_judge_prompt(anomaly, output, rubric))
-    try:
-        data = json.loads(resp)
-    except json.JSONDecodeError:
-        data = {}
-    scores = {d: int(data.get(d, 1)) for d in rubric.dimensions}
-    return JudgeScore(scores=scores, rationale=str(data.get("rationale", "")))
+    """调 LLM 按 rubric 打分。model 需有 .chat(messages, tools, tool_choice)（function calling）。"""
+    resp = model.chat(
+        [{"role": "user", "content": build_judge_prompt(anomaly, output, rubric)}],
+        tools=[_judge_schema(rubric)],
+        tool_choice={"type": "function", "function": {"name": "submit_judge_score"}},
+    )
+    args = {}
+    for call in resp.get("tool_calls", []):
+        if call.get("function", {}).get("name") == "submit_judge_score":
+            try:
+                args = json.loads(call["function"]["arguments"])
+            except json.JSONDecodeError:
+                args = {}
+            break
+    scores = {d: int(args.get(d, 1)) for d in rubric.dimensions}
+    return JudgeScore(scores=scores, rationale=str(args.get("rationale", "")))
 
 
 def judge_agreement(judge_scores: list[dict[str, int]], human_labels: list[dict[str, int]]) -> float:

@@ -1,27 +1,37 @@
+import json
+
 from dataquality_agent.eval.judge import Rubric, build_judge_prompt, judge, judge_agreement
 from dataquality_agent.models import Anomaly, Diagnosis
 
 RUBRIC = Rubric(dimensions=["根因正确性", "证据充分性", "可操作性"], description="评估归因质量")
 
 
-def test_judge_parses_scores():
-    def fake_model(prompt):
-        return '{"根因正确性": 5, "证据充分性": 3, "可操作性": 4, "rationale": "ok"}'
+def _fake_model(arguments: str):
+    """返回一个带 .chat 的假模型：只调用 submit_judge_score，arguments 可注入（含坏 JSON）。"""
 
-    anomaly = Anomaly(type="duplicate", table="orders")
-    output = Diagnosis(root_cause_category="脏数据注入", confidence=0.9)
-    s = judge(fake_model, anomaly, output, RUBRIC)
+    class FakeModel:
+        def chat(self, messages, tools=None, tool_choice=None, response_format=None):
+            return {"content": "", "tool_calls": [
+                {"id": "1", "function": {"name": "submit_judge_score", "arguments": arguments}}
+            ]}
+
+    return FakeModel()
+
+
+def test_judge_parses_scores():
+    s = judge(_fake_model(json.dumps({"根因正确性": 5, "证据充分性": 3, "可操作性": 4, "rationale": "ok"})),
+              Anomaly(type="duplicate", table="orders"),
+              Diagnosis(root_cause_category="脏数据注入", confidence=0.9),
+              RUBRIC)
     assert s.scores == {"根因正确性": 5, "证据充分性": 3, "可操作性": 4}
     assert s.rationale == "ok"
 
 
 def test_judge_bad_json_defaults_to_1():
-    def fake_model(prompt):
-        return "not json"
-
-    anomaly = Anomaly(type="duplicate", table="orders")
-    output = Diagnosis(root_cause_category="脏数据注入", confidence=0.9)
-    s = judge(fake_model, anomaly, output, RUBRIC)
+    s = judge(_fake_model("not json"),
+              Anomaly(type="duplicate", table="orders"),
+              Diagnosis(root_cause_category="脏数据注入", confidence=0.9),
+              RUBRIC)
     assert s.scores == {"根因正确性": 1, "证据充分性": 1, "可操作性": 1}  # 解析失败降级 1 分
 
 

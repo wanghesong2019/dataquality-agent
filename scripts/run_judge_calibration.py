@@ -11,10 +11,16 @@ from dataquality_agent.eval.judge import Rubric, judge, judge_agreement
 from dataquality_agent.llm import DeepSeekClient, LLMAdapter
 from dataquality_agent.models import Anomaly, Remediation
 
-# 评分维度（rubric）：整改方案质量的三个可判定面
+# 评分维度（rubric）：整改方案质量的三个可判定面。description 里写清 1~5 分锚点，
+# 让 judge 和人工用同一把尺子（否则"5 分"的含义各自脑补，一致率必然低）。
 RUBRIC = Rubric(
-    dimensions=["action_type 归类", "方案能修根因", "risk_level 判断"],
-    description="整改方案质量（action_type 是否合理、方案能否修掉根因、风险等级是否判准）",
+    dimensions=["action_type", "方案能修根因", "risk_level"],
+    description=(
+        "整改方案质量，逐维度 1~5 分（5=最好）："
+        "① action_type：能用 SQL 修却开 ticket/alert=1，SQL 能修用 fix_sql=5；"
+        "② 方案能修根因：SQL 语义错误/跑偏/空占位=1，能正确消除该异常=5；"
+        "③ risk_level：涉及 DELETE/UPDATE/金额字段却标 low=1，正确标 high=5"
+    ),
 )
 
 
@@ -25,37 +31,37 @@ SAMPLES = [
     (Anomaly(type="duplicate", table="orders", column="order_id"),
      Remediation(action_type="fix_sql", risk_level="high",
                  sql_or_suggestion="DELETE FROM orders WHERE order_id IN (SELECT order_id FROM orders GROUP BY order_id HAVING COUNT(*)>1)"),
-     {"action_type 归类": 5, "方案能修根因": 5, "risk_level 判断": 5}),
+     {"action_type": 5, "方案能修根因": 5, "risk_level": 5}),
 
     # 2. 负价格 → 正确 fix_sql 回填 + 正确标 high（金额字段）
     (Anomaly(type="value_range", table="order_items", column="price"),
      Remediation(action_type="fix_sql", risk_level="high",
                  sql_or_suggestion="UPDATE order_items SET price = 0 WHERE price < 0"),
-     {"action_type 归类": 5, "方案能修根因": 4, "risk_level 判断": 5}),
+     {"action_type": 5, "方案能修根因": 4, "risk_level": 5}),
 
     # 3. 孤儿外键 → 错误地给了 fix_sql（数据已在上游丢失，应 ticket 重跑上游）
     (Anomaly(type="orphan", table="order_items", column="order_id"),
      Remediation(action_type="fix_sql", risk_level="high",
                  sql_or_suggestion="DELETE FROM order_items WHERE order_id NOT IN (SELECT order_id FROM orders)"),
-     {"action_type 归类": 1, "方案能修根因": 2, "risk_level 判断": 3}),
+     {"action_type": 1, "方案能修根因": 2, "risk_level": 3}),
 
     # 4. 空值 → 正确 fix_sql 回填 + 正确标 medium
     (Anomaly(type="null_rate", table="orders", column="order_delivered_customer_date"),
      Remediation(action_type="fix_sql", risk_level="medium",
                  sql_or_suggestion="UPDATE orders SET order_delivered_customer_date = order_estimated_delivery_date WHERE order_status='delivered' AND order_delivered_customer_date IS NULL"),
-     {"action_type 归类": 5, "方案能修根因": 4, "risk_level 判断": 5}),
+     {"action_type": 5, "方案能修根因": 4, "risk_level": 5}),
 
     # 5. 重复 → 错误 action_type（明明能 SQL 去重却开 ticket）
     (Anomaly(type="duplicate", table="orders", column="order_id"),
      Remediation(action_type="ticket", risk_level="low",
                  sql_or_suggestion="请人工排查重复订单"),
-     {"action_type 归类": 1, "方案能修根因": 2, "risk_level 判断": 3}),
+     {"action_type": 1, "方案能修根因": 2, "risk_level": 3}),
 
     # 6. 负价格 → fix_sql 但 WHERE 缺失（危险：会改全表）且没标 high
     (Anomaly(type="value_range", table="order_items", column="price"),
      Remediation(action_type="fix_sql", risk_level="low",
                  sql_or_suggestion="UPDATE order_items SET price = 0"),
-     {"action_type 归类": 4, "方案能修根因": 1, "risk_level 判断": 1}),
+     {"action_type": 4, "方案能修根因": 1, "risk_level": 1}),
 ]
 
 
