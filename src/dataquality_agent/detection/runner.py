@@ -6,6 +6,7 @@ import duckdb
 
 from dataquality_agent.data.lineage import Lineage
 from dataquality_agent.detection import rules, stats
+from dataquality_agent.detection.semantic import run_semantic_checks
 from dataquality_agent.models import Anomaly
 
 
@@ -15,11 +16,6 @@ class DetectionReport:
 
     anomalies: list[Anomaly] = field(default_factory=list)
     stats: dict[str, float] = field(default_factory=dict)
-
-
-def run_semantic_checks(conn) -> list[Anomaly]:
-    """L2 LLM 语义检测——M1 只定义接口（stub），M2 实现 semantic.py 后接入、不改 runner。"""
-    return []
 
 
 def _watermarks(conn) -> dict[str, str]:
@@ -38,13 +34,15 @@ def run_detection(conn: duckdb.DuckDBPyConnection,
                   current_date: str | None = None,
                   expected_schema: dict | None = None,
                   zscore_threshold: float = 3.0,
-                  psi_threshold: float = 0.10) -> DetectionReport:
+                  psi_threshold: float = 0.10,
+                  semantic_model=None) -> DetectionReport:
     """跑全部检测（dataset 级 → column 级），返回报告 + 各检查耗时。
 
     - current_date：freshness 的参照日期（ISO 字符串）；缺省 = 数据全局最新水位线（干净数据不误报）。
     - expected_schema：schema 漂移的期望快照 {table: {col: type}}；缺省跳过 schema 检测
       （需要从干净数仓捕获，eval harness 会传入）。
     - zscore_threshold / psi_threshold：volume 的 z-score 阈值 / distribution 的 PSI 阈值。
+    - semantic_model：L2 语义检测用的 LLM（需有 .chat）；缺省跳过 L2（eval 干净数据不跑）。
     """
     report = DetectionReport()
 
@@ -82,7 +80,7 @@ def run_detection(conn: duckdb.DuckDBPyConnection,
     report.stats["l1_distribution"] = round(time.time() - t0, 4)
 
     t0 = time.time()
-    report.anomalies += run_semantic_checks(conn)
+    report.anomalies += run_semantic_checks(conn, semantic_model)
     report.stats["l2_semantic"] = round(time.time() - t0, 4)
 
     return report

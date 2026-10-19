@@ -55,9 +55,9 @@ c) return {"anomalies": report.anomalies} 返回什么？给谁？状态怎么�
 from dataquality_agent.detection.runner import run_detection
 
 
-def make_inspect_node(conn):
-    """返回巡检节点函数。conn 通过闭包注入（不放进 state——state 需可序列化）。"""
+def make_inspect_node(conn, semantic_model=None):
+    """返回巡检节点函数。conn/semantic_model 通过闭包注入（不放进 state——state 需可序列化）。"""
     def inspect(state):
-        report = run_detection(conn)
+        report = run_detection(conn, semantic_model=semantic_model)
         return {"anomalies": report.anomalies}
     return inspect

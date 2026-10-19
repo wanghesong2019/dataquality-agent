@@ -38,7 +38,7 @@ def build_runtime(settings: Settings | None = None) -> PatrolRuntime:
     checkpointer = SqliteSaver(sqlite3.connect(settings.checkpoint_path, check_same_thread=False))
 
     graph = build_graph(
-        make_inspect_node(conn),
+        make_inspect_node(conn, adapter),
         make_diagnose_node(adapter, tools),
         make_remediate_node(adapter, conn),
         make_approve_node(),
