@@ -33,7 +33,7 @@ def build_runtime(settings: Settings | None = None) -> PatrolRuntime:
     graph = build_graph(
         make_inspect_node(conn),
         make_diagnose_node(adapter, tools),
-        make_remediate_node(adapter),
+        make_remediate_node(adapter, conn),
         make_approve_node(),
         make_report_node(adapter),
         checkpointer=MemorySaver(),

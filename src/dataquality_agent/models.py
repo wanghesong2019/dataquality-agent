@@ -40,6 +40,13 @@ class Remediation(BaseModel):
         return self.risk_level == "high"
 
 
+class CriticVerdict(BaseModel):
+    """整改 Critic 的评审结论：passed 是否通过 + feedback 喂回 Executor 重写。"""
+
+    passed: bool = Field(description="这条整改方案是否通过评审")
+    feedback: str = Field(default="", description="不通过时的具体批评与修改建议")
+
+
 class Approval(BaseModel):
     """HITL 审批记录。"""
 

@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from typing import Callable
 
-from dataquality_agent.models import Diagnosis, Remediation
+from dataquality_agent.models import CriticVerdict, Diagnosis, Remediation
 
 
 @dataclass
@@ -45,6 +45,29 @@ SUBMIT_REMEDIATION_SCHEMA = {
         "name": "submit_remediation",
         "description": "提交一条数据质量整改方案",
         "parameters": Remediation.model_json_schema(),
+    },
+}
+
+
+def build_critic_prompt(anomaly, diagnosis, candidate: Remediation) -> str:
+    """Critic prompt：给异常 + 根因 + 候选方案 → 调 submit_critique 评审（只判语义，硬错误规则闸门已查）。"""
+    return (
+        f"异常：type={anomaly.type}, table={anomaly.table}, column={anomaly.column or '-'}。"
+        f"根因：{diagnosis.root_cause_category}（置信度 {diagnosis.confidence}）。"
+        f"候选方案：action_type={candidate.action_type}, risk_level={candidate.risk_level}, "
+        f"sql_or_suggestion={candidate.sql_or_suggestion}。"
+        "请调用 submit_critique 评审。重点：① action_type 归类是否对（该 fix_sql 却开 ticket / 反之）；"
+        "② sql_or_suggestion 是否真能修掉这个根因、建议是否跑偏或空/占位；"
+        "③ risk_level 判得准不准（金额字段、权限变更、生产表写操作应判 high）。"
+    )
+
+
+SUBMIT_CRITIQUE_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "submit_critique",
+        "description": "提交一条整改方案的评审结论",
+        "parameters": CriticVerdict.model_json_schema(),
     },
 }
 

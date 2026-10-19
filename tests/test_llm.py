@@ -43,6 +43,17 @@ def test_llm_adapter_tracks_cost():
     assert adapter.cost_ledger.total_tokens > 0
 
 
+def test_llm_adapter_uses_real_usage_when_present():
+    class FakeClient:
+        def chat(self, messages, tools=None, tool_choice=None, response_format=None):
+            return {"content": "ok", "tool_calls": [],
+                    "usage": {"prompt_tokens": 100, "completion_tokens": 5, "total_tokens": 105}}
+
+    adapter = LLMAdapter(FakeClient())
+    adapter("hello")
+    assert adapter.cost_ledger.total_tokens == 105
+
+
 def test_llm_adapter_emits_trace():
     from dataquality_agent.observability.tracing import Tracer
 
@@ -83,7 +94,10 @@ def test_deepseek_client_builds_payload(monkeypatch):
             pass
 
         def json(self):
-            return {"choices": [{"message": {"content": "ok"}}]}
+            return {
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7},
+            }
 
     def fake_post(url, headers=None, json=None, timeout=None):
         captured["json"] = json
@@ -97,4 +111,8 @@ def test_deepseek_client_builds_payload(monkeypatch):
     assert captured["json"]["model"] == "deepseek-chat"
     assert captured["json"]["tools"][0]["function"]["name"] == "f"
     assert captured["json"]["tool_choice"]["function"]["name"] == "f"
-    assert resp == {"content": "ok", "tool_calls": []}
+    assert resp == {
+        "content": "ok",
+        "tool_calls": [],
+        "usage": {"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7},
+    }

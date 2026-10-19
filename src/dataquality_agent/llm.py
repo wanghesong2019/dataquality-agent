@@ -5,7 +5,7 @@ from dataquality_agent.models import CostLedger
 
 
 def _estimate_tokens(messages: list[dict], resp: dict) -> int:
-    """粗略 Token 估算（按字符数，生产应换成 tokenizer 精确统计）。"""
+    """Token 估算（按字符数）——仅当客户端不返回 usage 时兜底，非精确值。"""
     n = 0
     for m in messages:
         n += len(str(m.get("content", "")))
@@ -17,11 +17,17 @@ def _estimate_tokens(messages: list[dict], resp: dict) -> int:
     return n
 
 
+def _count_tokens(messages: list[dict], resp: dict) -> int:
+    """优先用 API 返回的 usage.total_tokens（真实计数），缺失时回退字符估算。"""
+    total = (resp.get("usage") or {}).get("total_tokens")
+    return total if total is not None else _estimate_tokens(messages, resp)
+
+
 class LLMAdapter:
     """统一模型调用入口：所有 agent 都通过它调模型，统一重试 + 计成本 + trace。
 
     客户端接口：`client.chat(messages, tools=None, tool_choice=None, response_format=None) -> dict`，
-    返回 OpenAI 风格的 assistant message（`{content, tool_calls}`）。
+    返回 OpenAI 风格的 assistant message（`{content, tool_calls, usage}`）；usage 为真实 token 计数，缺失时按字符估算兜底。
     """
 
     def __init__(self, client, cost_ledger: CostLedger | None = None, tracer=None):
@@ -47,7 +53,7 @@ class LLMAdapter:
                     raise
                 continue  # 重试
             self.cost_ledger.llm_calls += 1
-            tokens = _estimate_tokens(messages, resp)
+            tokens = _count_tokens(messages, resp)
             self.cost_ledger.total_tokens += tokens
             if span is not None:
                 self.tracer.end_span(span, output=str(resp), tokens=tokens)
@@ -58,7 +64,7 @@ class LLMAdapter:
 class DeepSeekClient:
     """DeepSeek API 客户端（OpenAI 兼容），支持 function calling + 结构化输出。
 
-    chat(messages, tools, tool_choice, response_format) -> {content, tool_calls}
+    chat(messages, tools, tool_choice, response_format) -> {content, tool_calls, usage}
     """
 
     def __init__(self, api_key: str | None = None):
@@ -84,5 +90,10 @@ class DeepSeekClient:
             timeout=30,
         )
         resp.raise_for_status()
-        msg = resp.json()["choices"][0]["message"]
-        return {"content": msg.get("content") or "", "tool_calls": msg.get("tool_calls") or []}
+        data = resp.json()
+        msg = data["choices"][0]["message"]
+        return {
+            "content": msg.get("content") or "",
+            "tool_calls": msg.get("tool_calls") or [],
+            "usage": data.get("usage") or {},
+        }
