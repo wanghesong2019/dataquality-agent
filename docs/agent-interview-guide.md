@@ -323,7 +323,7 @@
 **本项目怎么答（数字 + 口径是核心）**：
 > 我的评估地基是 **ground-truth**：注入器把干净数仓注入 7 类异常，同时记录每条的真实根因类别（`data/injector.py:11` 的 `ROOT_CAUSE_CATEGORY` 与 `Diagnosis.root_cause_category` 枚举对齐）。归因正确率不是"比文本像不像"，而是比**结构化类别是否一致**（`eval/metrics.py:96`）。
 > **整改成功率用"复检口径"**——不是看 SQL 长啥样，而是"应用 fix_sql 后重跑检测、异常是否消失"（`eval/harness.py:42`）。而且我按**可逆/数据丢失分型**：可逆异常（重复、负值）SQL 能修、成功率 1.0；数据丢失异常（删行、置空）原始值已毁、只能上游重跑、成功率 0.0（`eval/harness.py:14` 的 `REVERSIBLE_TYPES`）。这个分型印证了"SQL 不是万能"的边界，比一个笼统的 0.50 更有说服力。
-> **LLM-as-Judge**：我用 rubric 让强模型给归因/整改质量打 1~5 分，但配了 `judge_agreement` 做人工抽检校准（`eval/judge.py:59`），解析失败降级最低分不抛异常。**真跑了校准**（`scripts/run_judge_calibration.py`，6 条标注集）：一致率从 prompt 化 JSON 的 **16.67%** → function calling 结构化输出 + rubric 锚点后的 **38.89%**。中间踩了个坑：DeepSeek function calling 会**截断含空格的 property name**（"action_type 归类"被生成成"action_type，JSON 解析失败全维度兜底 1 分），所以维度名必须紧凑无空格。剩下的 gap 是语义层（judge 和人工对"orphan 该 ticket 还是 fix_sql"真会分歧 + 部分标签本身偏宽），这正是**关键判定不能只靠 judge、要配可验证信号**（SQL 能否跑通、异常是否消失）的原因。
+> **LLM-as-Judge**：我用 rubric 让强模型给归因/整改质量打 1~5 分，但配了 `judge_agreement` 做人工抽检校准（`eval/judge.py`），解析失败降级最低分不抛异常。**真跑了校准**（`scripts/run_judge_calibration.py`，6 条标注集），一致率一路从 prompt 化 JSON 的 **16.67%** → 结构化输出 + rubric 锚点 **38.89%** → 加根因上下文 **44.44%**（exact）/ **77.78%**（±1 容差）。三个关键经验：① DeepSeek function calling 会**截断含空格的 property name**（"action_type 归类"→"action_type），维度名必须无空格；② 不给 judge 根因，它会把"删孤儿行"的 fix_sql 判成满分（orphan 该 ticket 重跑上游）；③ exact 1~5 太苛刻（4 vs 5 方向一致却判不一致），±1 容差才是 Likert 量表"rough agreement"的合理口径。结论：judge **方向性正确但精确档位有噪声**，所以关键判定（SQL 能否跑通、异常是否消失）用可验证信号，judge 只用于开放维度。
 
 **来源**：agent-interview evaluation + MisterBooo《评估与监控图解》+ AgentGuide《模型评估篇》+ 阿里云《Agent 怎么评测》。
 
@@ -373,7 +373,7 @@
 ### 🔴 P0 —— 会被问穿、且影响"数字可信度"的硬伤（先补）
 
 1. ~~**Token 计数换成真实值**~~ ✅ **已完成**（`llm.py` 读 `usage.total_tokens`，101 tests passed，已提交 `8c35e48`）。
-2. ~~**LLM-as-Judge 校准闭环**~~ ✅ **已完成**（`scripts/run_judge_calibration.py` 6 条标注集：结构化输出后一致率 16.67%→38.89%，剩余语义 gap 见 §8）。
+2. ~~**LLM-as-Judge 校准闭环**~~ ✅ **已完成**（`scripts/run_judge_calibration.py` 6 条标注集：一致率 16.67%→44.44% exact / 77.78% ±1，详见 §8）。
 3. ~~**HITL 换持久化 checkpointer**~~ ✅ **已完成**（`api/wiring.py` 换 `SqliteSaver` + `config.py` 加 `checkpoint_path` + `pyproject.toml` 加 `langgraph-checkpoint-sqlite`，101 tests passed）。
 4. **matched_cases 像 evidence_chain 一样回填**（`agents/diagnose.py`）：堵住"没查案例却谎称命中"的洞，把"证据幻觉"这个故事讲圆满。
 

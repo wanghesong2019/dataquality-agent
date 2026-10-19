@@ -34,17 +34,20 @@ class JudgeScore(BaseModel):
     rationale: str = ""
 
 
-def build_judge_prompt(anomaly, output, rubric: Rubric) -> str:
-    """把「异常 + 产出 + rubric」拼成打分 prompt（要求输出结构化 JSON）。"""
+def build_judge_prompt(anomaly, output, rubric: Rubric, context=None) -> str:
+    """把「异常 + 产出 + rubric」拼成打分 prompt。context 可选：如整改对应的根因 Diagnosis。"""
     dims = "、".join(rubric.dimensions)
-    return (
-        "你是数据质量评估员。请按 rubric 给以下产出打分（每个维度 1~5 分，5=最好）。\n"
-        f"rubric：{rubric.description}\n"
-        f"评分维度：{dims}\n"
-        f"异常：{anomaly.model_dump()}\n"
-        f"产出：{output.model_dump()}\n"
-        '输出 JSON，字段必须为：{"<维度名>": <1~5 的整数>, "rationale": "一句话理由"}'
-    )
+    lines = [
+        "你是数据质量评估员。请按 rubric 给以下产出打分（每个维度 1~5 分，5=最好）。",
+        f"rubric：{rubric.description}",
+        f"评分维度：{dims}",
+        f"异常：{anomaly.model_dump()}",
+    ]
+    if context is not None:
+        lines.append(f"上下文（已归因的根因）：{context.model_dump()}")
+    lines.append(f"产出：{output.model_dump()}")
+    lines.append('输出 JSON，字段必须为：{"<维度名>": <1~5 的整数>, "rationale": "一句话理由"}')
+    return "\n".join(lines)
 
 
 def _judge_schema(rubric: Rubric) -> dict:
@@ -71,10 +74,10 @@ def _judge_schema(rubric: Rubric) -> dict:
     }
 
 
-def judge(model, anomaly, output, rubric: Rubric) -> JudgeScore:
-    """调 LLM 按 rubric 打分。model 需有 .chat(messages, tools, tool_choice)（function calling）。"""
+def judge(model, anomaly, output, rubric: Rubric, context=None) -> JudgeScore:
+    """调 LLM 按 rubric 打分。model 需有 .chat(messages, tools, tool_choice)。context 可选：如整改对应的根因 Diagnosis。"""
     resp = model.chat(
-        [{"role": "user", "content": build_judge_prompt(anomaly, output, rubric)}],
+        [{"role": "user", "content": build_judge_prompt(anomaly, output, rubric, context)}],
         tools=[_judge_schema(rubric)],
         tool_choice={"type": "function", "function": {"name": "submit_judge_score"}},
     )
@@ -90,14 +93,18 @@ def judge(model, anomaly, output, rubric: Rubric) -> JudgeScore:
     return JudgeScore(scores=scores, rationale=str(args.get("rationale", "")))
 
 
-def judge_agreement(judge_scores: list[dict[str, int]], human_labels: list[dict[str, int]]) -> float:
-    """人工抽检校准：逐维度比对法官分 vs 人工分，返回一致率（证明 LLM-as-a-Judge 靠谱）。"""
+def judge_agreement(judge_scores: list[dict[str, int]], human_labels: list[dict[str, int]], tolerance: int = 0) -> float:
+    """人工抽检校准：逐维度比对法官分 vs 人工分，返回一致率。
+
+    tolerance 允许 ±N 算一致——Likert 量表的相邻档（4 vs 5）方向一致但精确值差一档，
+    exact 匹配会把它判为不一致；±1 容差更能反映"rough agreement"。默认 0 = exact。
+    """
     if not human_labels:
         return 0.0
     total = matched = 0
     for js, hl in zip(judge_scores, human_labels):
         for dim, label in hl.items():  # 以人工标注的维度为准
             total += 1
-            if js.get(dim) == label:
+            if abs(js.get(dim, 0) - label) <= tolerance:
                 matched += 1
     return matched / total if total else 0.0
