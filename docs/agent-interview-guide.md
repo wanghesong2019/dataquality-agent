@@ -11,7 +11,7 @@
 
 1. **先给结论/边界**，不要上来铺技术栈。例：被问"为什么用 LangGraph"→ 先一句"因为它把 Agent 建模成有状态的有向图，我需要精确控制检测→归因→整改→审批的流程和 HITL 暂停点"，再展开。
 2. **每个方案都带"代价"**。例：说 rerank 能提准，必须补"代价是多一段推理延迟，所以我用离线排序指标 + P95 延迟一起定候选数"。
-3. **主动暴露踩坑与边界**。诚实说"哪里没做、为什么"比吹满更可信（例：L2 语义检测暂缓是因为确定性检测优先、成本可控）。
+3. **主动暴露踩坑与边界**。诚实说"哪里没做、为什么"比吹满更可信（例：案例库目前只有 4 条 demo，检索评测还停在单元级）。
 4. **量化背书**。能报数字就报数字（本项目：检测 F1=1.0、归因 0.75、整改 0.50），但**必须能解释口径**（下面 §8 专门讲）。
 
 **来源**：方法论综合（"30 秒要点 + 展开逻辑"表达结构整理自 51CTO《Agent 面试题 40+ 道》方法论；非题库出处）。
@@ -256,7 +256,7 @@
 
 **本项目怎么答**：
 > 归因的"相似案例检索"是 dense（语义）+ BM25（关键词）两路召回、RRF 融合（`rag/retriever.py:25` 的 `search` 和 `:53` 的 `_rrf`，k=60）。Embedding 是可插拔的：配了 `EMBEDDING_BASE_URL` 走 OpenAI 兼容的 BGE-M3，否则词袋 fallback（`rag/embedder.py:63`）。
-> **诚实的边界**（这是面试加分点，不是扣分点）：我现在是**简化 BM25**（词频+文档长度归一化，`rag/retriever.py:41`，没做 IDF），且**没上 Rerank**。原因是案例库目前只有 4 条 demo（`rag/cases.py:5`），检索质量还不是瓶颈；等案例库规模上去，第一步是补标准 BM25，再按"Top-K 召回 + Cross-Encoder 精排"上 Rerank——而且这个判断本身是基于"先扩召回覆盖、再收精度"的分层原则。
+> **RAG 深度（已做）**：BM25 现在是**标准的**（IDF + k1/b 长度归一化，`rag/retriever.py` 的 `_bm25`），并补了 `llm_rerank`（`rag/rerank.py`，LLM 精排，Cross-Encoder 的 LLM 版）和检索评测 `recall_at_k`/`mrr`（`eval/retrieval.py`）。**诚实边界**：案例库仍只有 4 条 demo，检索评测停在单元级，真正的 Recall@K 曲线要等案例库规模化、有标注集才能跑。
 
 **来源**：llm-master rag_interview + 卡码笔记《RAG 大厂面试题汇总》+ 腾讯《为什么你的 RAG 检索不到答案》。
 
@@ -360,7 +360,7 @@
 - 注入器用固定 seed（`config.py:13` `seed=42`）保证 ground-truth 可复现——评估的地基必须可复现。
 
 **本项目怎么答**：
-> 检测分三层：L0 规则断言（`detection/rules.py`，确定性 0-LLM）、L1 统计（`detection/stats.py`：血缘断裂/停更/schema 漂移 + z-score/PSI 算法）、L2 LLM 语义。**诚实边界**：L2 目前是 stub（`detection/runner.py:20` 返回空），L1 的 volume/distribution 算法写好了但没接进 runner——这是"说了三层只接了两层"的口径缺口，我会说清楚"为什么 L2 暂缓：确定性检测先跑通、成本可控，语义检测是最后一道兜底而非主力"。
+> 检测三层现在齐全：L0 规则断言（`detection/rules.py`，0-LLM）、L1 统计（`detection/stats.py`：血缘断裂/停更/schema 漂移/**volume(z-score)/distribution(PSI)**）、L2 LLM 语义（`detection/semantic.py`：采样 DWD 表让 LLM 找规则/统计抓不到的语义异常，`semantic_model` 缺省跳过）。分层逻辑：确定性优先、LLM 兜底——规则最快最可解释，统计学历史基线，LLM 只兜底语义层。
 
 **来源**：本项目代码映射（非题库；对应"模型 vs 确定性计算边界"通用考点）。
 
@@ -377,11 +377,11 @@
 3. ~~**HITL 换持久化 checkpointer**~~ ✅ **已完成**（`api/wiring.py` 换 `SqliteSaver` + `config.py` 加 `checkpoint_path` + `pyproject.toml` 加 `langgraph-checkpoint-sqlite`，101 tests passed）。
 4. **matched_cases 像 evidence_chain 一样回填**（`agents/diagnose.py`）：堵住"没查案例却谎称命中"的洞，把"证据幻觉"这个故事讲圆满。
 
-### 🟡 P1 —— 高频考点，可"讲"但要有依据
+### 🟡 P1 —— ✅ 已完成（2026-10-19）
 
-5. **RAG 深度（rerank / 标准 BM25 / 检索评测）**：这是必问点，但**受 [[rag-spinoff-decision]] 约束**——若另起 RAG 项目，这里只留接口 + 能讲清"什么时候该上 rerank"的工程判断，不做深。
-6. **L2 语义检测**（`detection/runner.py:20`）：补齐或准备"为什么暂缓"的诚实口径（推荐后者，本身就是加分叙事）。
-7. **L1 volume/distribution 接线**（`detection/stats.py:10/28`）：消除"三层 vs 两层"的口径不一致，或至少在 README 标注清楚。
+5. ~~RAG 深度~~ ✅ 标准 BM25(IDF) + `llm_rerank` + `recall_at_k`/`mrr`（`rag/retriever.py`、`rag/rerank.py`、`eval/retrieval.py`）
+6. ~~L2 语义检测~~ ✅ `detection/semantic.py`（LLM 采样 DWD 表找语义异常，`semantic_model` 缺省跳过）
+7. ~~L1 volume/distribution 接线~~ ✅ `detect_volume`(z-score) + `detect_distribution`(PSI) 接入 `run_detection`
 
 ### 🟢 P2 —— 加分故事，不是必问
 
