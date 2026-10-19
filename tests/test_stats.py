@@ -1,7 +1,7 @@
 from dataquality_agent.data.lineage import Lineage
 from dataquality_agent.detection.stats import (
     zscore_detect, psi, check_freshness, schema_diff, detect_lineage_break,
-    detect_freshness, detect_schema_drift,
+    detect_freshness, detect_schema_drift, detect_volume, detect_distribution,
 )
 
 
@@ -65,3 +65,36 @@ def test_detect_schema_drift():
     assert len(anomalies) == 1
     assert anomalies[0].type == "schema_drift"
     assert "removed:b" in anomalies[0].evidence
+
+
+def _volume_conn():
+    import duckdb
+    conn = duckdb.connect()
+    conn.execute("CREATE TABLE daily_metrics (order_date DATE, orders INTEGER)")
+    for i in range(7):
+        conn.execute("INSERT INTO daily_metrics VALUES (?, ?)", [f"2018-01-0{i + 1}", 100 + i * 5])
+    conn.execute("INSERT INTO daily_metrics VALUES ('2018-01-08', 300)")  # 最后一天 spike
+    return conn
+
+
+def test_detect_volume_spike():
+    assert detect_volume(_volume_conn(), threshold=3.0) != []   # spike 应被 z-score 检出
+    assert detect_volume(_volume_conn(), threshold=50.0) == []  # 阈值极高，不报
+
+
+def _dist_conn():
+    import duckdb
+    conn = duckdb.connect()
+    conn.execute("CREATE TABLE dwd_orders (order_purchase_timestamp TIMESTAMP, order_status VARCHAR)")
+    for _ in range(90):
+        conn.execute("INSERT INTO dwd_orders VALUES ('2018-01-01 10:00:00', 'delivered')")
+    for _ in range(10):
+        conn.execute("INSERT INTO dwd_orders VALUES ('2018-01-01 10:00:00', 'canceled')")
+    for _ in range(100):
+        conn.execute("INSERT INTO dwd_orders VALUES ('2018-01-02 10:00:00', 'canceled')")  # 最后一天全 canceled（漂移）
+    return conn
+
+
+def test_detect_distribution_shift():
+    assert detect_distribution(_dist_conn(), threshold=0.10) != []  # 明显漂移应被 PSI 检出
+    assert detect_distribution(_dist_conn(), threshold=100.0) == []  # 阈值极高，不报

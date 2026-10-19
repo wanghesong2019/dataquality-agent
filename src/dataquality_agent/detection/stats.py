@@ -41,6 +41,59 @@ def psi(actual: dict, expected: dict, epsilon: float = 1e-3) -> float:
     return score
 
 
+def _status_dist(conn, day=None) -> dict[str, int]:
+    """dwd_orders 的 order_status 计数分布。day 为 None 取全历史，否则只取某一天。"""
+    if day is None:
+        rows = conn.execute(
+            "SELECT order_status, COUNT(*) FROM dwd_orders GROUP BY order_status"
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT order_status, COUNT(*) FROM dwd_orders WHERE order_purchase_timestamp::DATE = ?::DATE GROUP BY order_status",
+            [str(day)],
+        ).fetchall()
+    return {r[0]: r[1] for r in rows}
+
+
+def detect_volume(conn, threshold: float = 3.0, lookback: int = 7) -> list[Anomaly]:
+    """volume 点异常：最新一天订单量 vs 前 lookback 天基线（z-score）。"""
+    rows = conn.execute(
+        "SELECT orders FROM daily_metrics ORDER BY order_date DESC LIMIT ?", [lookback + 1]
+    ).fetchall()
+    if len(rows) < 3:
+        return []
+    current = rows[0][0]
+    baseline = [r[0] for r in rows[1:]]
+    if zscore_detect(current, baseline, threshold):
+        return [Anomaly(
+            type="volume", table="daily_metrics",
+            evidence=f"最新日订单量 {current} 偏离基线（|z| 超 {threshold}）",
+            metric_value=current, expected_range=f"|z| <= {threshold}",
+        )]
+    return []
+
+
+def detect_distribution(conn, threshold: float = 0.10, min_count: int = 10) -> list[Anomaly]:
+    """distribution 漂移：最新一天 order_status 分布 vs 全历史基线（PSI）。"""
+    latest = conn.execute(
+        "SELECT MAX(order_purchase_timestamp::DATE) FROM dwd_orders"
+    ).fetchone()[0]
+    if latest is None:
+        return []
+    cur = _status_dist(conn, latest)
+    if sum(cur.values()) < min_count:
+        return []  # 最新一天样本太少，无法判断分布漂移（防小样本误报）
+    exp = _status_dist(conn, None)
+    score = psi(cur, exp)
+    if score > threshold:
+        return [Anomaly(
+            type="distribution", table="orders", column="order_status",
+            evidence=f"order_status 分布漂移 PSI={score:.3f} 超阈值 {threshold}",
+            metric_value=round(score, 4), expected_range=f"PSI <= {threshold}",
+        )]
+    return []
+
+
 def check_freshness(dates: list[str], current_date: str, max_gap_days: int = 1) -> bool:
     """数据停更：最新分区日落后 current_date 超过容忍天数则报。dates 为已有日期字符串。"""
     if not dates:
