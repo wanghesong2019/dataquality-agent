@@ -323,7 +323,7 @@
 **本项目怎么答（数字 + 口径是核心）**：
 > 我的评估地基是 **ground-truth**：注入器把干净数仓注入 7 类异常，同时记录每条的真实根因类别（`data/injector.py:11` 的 `ROOT_CAUSE_CATEGORY` 与 `Diagnosis.root_cause_category` 枚举对齐）。归因正确率不是"比文本像不像"，而是比**结构化类别是否一致**（`eval/metrics.py:96`）。
 > **整改成功率用"复检口径"**——不是看 SQL 长啥样，而是"应用 fix_sql 后重跑检测、异常是否消失"（`eval/harness.py:42`）。而且我按**可逆/数据丢失分型**：可逆异常（重复、负值）SQL 能修、成功率 1.0；数据丢失异常（删行、置空）原始值已毁、只能上游重跑、成功率 0.0（`eval/harness.py:14` 的 `REVERSIBLE_TYPES`）。这个分型印证了"SQL 不是万能"的边界，比一个笼统的 0.50 更有说服力。
-> **LLM-as-Judge**：我用 rubric 让强模型给归因/整改质量打 1~5 分，但配了 `judge_agreement` 做人工抽检校准（`eval/judge.py:59`），解析失败降级最低分不抛异常。
+> **LLM-as-Judge**：我用 rubric 让强模型给归因/整改质量打 1~5 分，但配了 `judge_agreement` 做人工抽检校准（`eval/judge.py:59`），解析失败降级最低分不抛异常。**真跑了校准**（`scripts/run_judge_calibration.py`，6 条标注集）：一致率只有 **16.67%**——暴露了 prompt 化 JSON judge（L1 强制）的偏差：rubric 太模糊、judge 系统性偏严。改进方向：① judge 升级结构化输出（function calling / L2）；② rubric 拆成可判定的原子维度；③ 关键判定（SQL 能否跑通、异常是否消失）用可验证信号，不靠 judge 主观分。
 
 **来源**：agent-interview evaluation + MisterBooo《评估与监控图解》+ AgentGuide《模型评估篇》+ 阿里云《Agent 怎么评测》。
 
@@ -373,7 +373,7 @@
 ### 🔴 P0 —— 会被问穿、且影响"数字可信度"的硬伤（先补）
 
 1. ~~**Token 计数换成真实值**~~ ✅ **已完成**（`llm.py` 读 `usage.total_tokens`，101 tests passed，已提交 `8c35e48`）。
-2. **LLM-as-Judge 校准闭环**（`eval/judge.py:59`）：`judge_agreement` 写了但没跑过人工抽检。面试问"你的 judge 一致性多少"，现在答不上来。补一个最小的人工标注集（哪怕 10 条）跑出数字。
+2. ~~**LLM-as-Judge 校准闭环**~~ ✅ **已完成**（`scripts/run_judge_calibration.py` 跑出 6 条标注集，一致率 16.67%——暴露 prompt 化 judge 偏差，改进方向见 §8）。
 3. ~~**HITL 换持久化 checkpointer**~~ ✅ **已完成**（`api/wiring.py` 换 `SqliteSaver` + `config.py` 加 `checkpoint_path` + `pyproject.toml` 加 `langgraph-checkpoint-sqlite`，101 tests passed）。
 4. **matched_cases 像 evidence_chain 一样回填**（`agents/diagnose.py`）：堵住"没查案例却谎称命中"的洞，把"证据幻觉"这个故事讲圆满。
 
