@@ -5,22 +5,29 @@ from dataquality_agent.rag.embedder import Embedder
 
 
 class Retriever:
-    """案例检索器：dense（语义相似）+ sparse（关键词）两路召回，RRF 融合排序。"""
+    """案例检索器：dense（语义相似）+ sparse（标准 BM25）两路召回，RRF 融合排序。"""
 
-    def __init__(self, embedder: Embedder, rrf_k: int = 60):
+    def __init__(self, embedder: Embedder, rrf_k: int = 60, bm25_k1: float = 1.5, bm25_b: float = 0.75):
         self.embedder = embedder
         self.rrf_k = rrf_k
+        self.bm25_k1 = bm25_k1
+        self.bm25_b = bm25_b
         self.docs: list[dict] = []
+        self._df: dict[str, int] = {}  # term -> 包含该 term 的文档数（IDF 用）
+        self._avgdl: float = 0.0       # 平均文档长度（BM25 长度归一化用）
 
     def index(self, cases: list[dict]) -> None:
-        """cases: [{id, text}]。"""
+        """cases: [{id, text}]。建索引时顺带算 document frequency 和平均文档长度（BM25 需要）。"""
         texts = [c["text"] for c in cases]
         vecs = self.embedder.embed(texts)
-        for c, v in zip(cases, vecs):
-            self.docs.append({
-                "id": c["id"], "text": c["text"],
-                "dense": v, "tokens": c["text"].split(),
-            })
+        tokenized = [c["text"].split() for c in cases]
+        self._df = {}
+        for toks in tokenized:
+            for t in set(toks):
+                self._df[t] = self._df.get(t, 0) + 1
+        self._avgdl = (sum(len(t) for t in tokenized) / len(tokenized)) if tokenized else 0.0
+        for c, v, toks in zip(cases, vecs, tokenized):
+            self.docs.append({"id": c["id"], "text": c["text"], "dense": v, "tokens": toks})
 
     def search(self, query: str, k: int = 3) -> list[dict]:
         q_dense = self.embedder.embed([query])[0]
@@ -38,16 +45,22 @@ class Retriever:
         nb = math.sqrt(sum(x * x for x in b)) or 1.0
         return dot / (na * nb)
 
-    @staticmethod
-    def _bm25(q_tokens: list[str], doc_tokens: list[str]) -> float:
-        # 简化 BM25：词频加权 + 文档长度归一化（demo 足够，抓表名/字段名关键词）
-        if not doc_tokens:
+    def _bm25(self, q_tokens: list[str], doc_tokens: list[str]) -> float:
+        """标准 BM25：IDF × 词频饱和 + 文档长度归一化（k1/b 参数）。"""
+        if not doc_tokens or not self.docs:
             return 0.0
+        n_docs = len(self.docs)
+        dl = len(doc_tokens)
+        avgdl = max(self._avgdl, 1.0)
         score = 0.0
         for q in q_tokens:
+            df = self._df.get(q, 0)
+            if df == 0:
+                continue
+            idf = math.log((n_docs - df + 0.5) / (df + 0.5) + 1.0)
             tf = doc_tokens.count(q)
-            if tf:
-                score += tf / len(doc_tokens)
+            denom = tf + self.bm25_k1 * (1 - self.bm25_b + self.bm25_b * dl / avgdl)
+            score += idf * (tf * (self.bm25_k1 + 1.0)) / denom
         return score
 
     def _rrf(self, dense, sparse, k: int) -> list[str]:
