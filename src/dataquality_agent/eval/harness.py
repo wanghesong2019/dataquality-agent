@@ -3,6 +3,7 @@ from dataquality_agent.detection.runner import run_detection
 from dataquality_agent.eval.metrics import (
     EvalReport,
     attribution_accuracy,
+    classify_failures,
     end_to_end_success,
     evaluate_detection,
     evaluate_detection_by_type,
@@ -80,4 +81,5 @@ def run_eval(injected, detected_before, diagnoses, detected_after, stats, cost_l
         total_cost=cost_ledger.total_cost if cost_ledger else 0.0,
         llm_calls=cost_ledger.llm_calls if cost_ledger else 0,
         trajectory=evaluate_trajectories(diagnoses),
+        failure_taxonomy=classify_failures(detected_before, diagnoses, detected_after, injected),
     )

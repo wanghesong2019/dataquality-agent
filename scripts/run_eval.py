@@ -93,6 +93,9 @@ def main() -> None:
     print(f"整改成功率（复检，整体）：{report.remediation_success:.3f}")
     print(f"整改成功率（分型）：{ {k: round(v, 3) for k, v in by_rev.items()} }")
     print(f"端到端成功率：{report.end_to_end_success:.3f}")
+    if report.failure_taxonomy:
+        ft = report.failure_taxonomy
+        print(f"失败分型：检测漏 {ft.detection_failure} / 归因错 {ft.attribution_failure} / 整改失败 {ft.remediation_failure} / 成功 {ft.success}（共 {ft.total}）")
     print(f"耗时/成本：latency={report.latency_seconds:.2f}s tokens={report.total_tokens} llm_calls={report.llm_calls}")
     print("=" * 64)
 

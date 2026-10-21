@@ -406,15 +406,15 @@
 | 关键词 | 本项目现状 | 判定 |
 |---|---|---|
 | 可观测 | `Tracer` 只记 LLM 调用，缺步骤级 Trace（tool/检索/节点未埋 span） | 🟡 半 |
-| 可评测 | Outcome(F1/归因/整改/端到端) + Judge 校准(44%/78%) + RAG(Recall@K/MRR) | 🟢 较强 |
-| 可调试 | 有 `evidence_chain`（真实工具历史），缺 Failure Taxonomy | 🟡 半 |
+| 可评测 | Outcome(F1/归因/整改/端到端) + Trajectory(过程合格率/冗余/schema优先) + Judge 校准(44%/78%) + RAG(Recall@K/MRR) | 🟢 强 |
+| 可调试 | 有 `evidence_chain`（真实工具历史）+ Failure Taxonomy（漏检/归因错/整改失败分型） | 🟢 较强 |
 | 可进化 | 缺 Data Flywheel（一次性 eval，非闭环） | 🔴 缺 |
 
 ### 待补清单（P1 → P2 → P3）
 
 - **P1（材料最现成、面试最加分）**：
-  1. **Trajectory Evaluation**——用已有的 `evidence_chain` 评"过程对不对"（tool 选择/参数是否正确、是否先 schema 再写 SQL、有无冗余 loop）。
-  2. **Failure Taxonomy**——失败按"检测/归因/整改/审批"阶段分型统计，能回答"哪一步最常挂"。
+  1. ~~**Trajectory Evaluation**~~ ✅ **已完成**：`eval/trajectory.py` 用 `evidence_chain` 规则化评过程（无冗余重复调用 / 用 SQL 前先查 schema / 证据 ≥2 工具），接入 EvalReport、`run_eval.py` 输出轨迹质量，129 tests 全绿。
+  2. ~~**Failure Taxonomy**~~ ✅ **已完成**：`eval/metrics.py` 的 `classify_failures` 把端到端失败按「漏检 / 归因错 / 整改失败 / 成功」四桶分型，`run_eval.py` 输出失败分型，134 tests 全绿。
   3. **步骤级 Trace**——给 tool 调用、检索、各节点（inspect/diagnose/remediate/approve）也埋 span，凑成 Trace 树。
 - **P2**：
   4. **Safety Evaluation**——prompt injection / 权限越界 / 危险操作的测试用例（不止 SafeSQL 机制，要有评测）。

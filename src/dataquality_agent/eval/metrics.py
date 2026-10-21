@@ -32,6 +32,21 @@ class DetectionMetrics:
 
 
 @dataclass
+class FailureTaxonomy:
+    """端到端失败按阶段分型（回答"哪一步最常挂"）。"""
+
+    success: int = 0
+    detection_failure: int = 0    # 漏检
+    attribution_failure: int = 0  # 归因错
+    remediation_failure: int = 0  # 整改后仍检出
+    total: int = 0
+
+    @property
+    def success_rate(self) -> float:
+        return self.success / self.total if self.total else 0.0
+
+
+@dataclass
 class EvalReport:
     """一次完整评估的量化结果（面试报数用）。"""
 
@@ -45,6 +60,7 @@ class EvalReport:
     total_cost: float = 0.0
     llm_calls: int = 0
     trajectory: TrajectoryReport | None = None
+    failure_taxonomy: FailureTaxonomy | None = None
 
 
 def _keys(items) -> set:
@@ -130,19 +146,38 @@ def remediation_success(detected_before, detected_after, injected) -> float:
     return len(fixed) / len(to_fix)
 
 
+def classify_failures(detected, diagnoses, detected_after, injected) -> FailureTaxonomy:
+    """端到端失败按阶段分型：漏检 / 归因错 / 整改失败 / 成功（回答"哪一步最常挂"）。
+
+    对齐方式：detected 与 diagnoses 按索引一一对应（diagnose 节点按 anomalies 顺序生成），
+    用 (type, table) 键把每个注入异常映射到「走到了哪一步」。
+    """
+    gt = {(i.type, i.table): i.root_cause_category for i in injected}
+    det_keys = _keys(detected)
+    after_keys = _keys(detected_after)
+    diag_by_key = {(a.type, a.table): d for a, d in zip(detected, diagnoses)}
+
+    ft = FailureTaxonomy(total=len(injected))
+    for i in injected:
+        key = (i.type, i.table)
+        if key not in det_keys:
+            ft.detection_failure += 1  # 漏检
+            continue
+        d = diag_by_key.get(key)
+        if d is None or d.root_cause_category != i.root_cause_category:
+            ft.attribution_failure += 1  # 归因错
+            continue
+        if key in after_keys:
+            ft.remediation_failure += 1  # 整改后仍检出
+            continue
+        ft.success += 1
+    return ft
+
+
 def end_to_end_success(detected, diagnoses, detected_after, injected) -> float:
     """端到端闭环成功率：注入 → 检出 → 归因对 → 整改后消失，全链走通才算成功。
     分母 = 全部注入异常（任一环节漏掉都算该异常端到端失败）。"""
-    gt = {(i.type, i.table): i.root_cause_category for i in injected}
-    after = _keys(detected_after)
-    success = 0
-    for a, d in zip(detected, diagnoses):
-        key = (a.type, a.table)
-        if key not in gt:
-            continue  # 误报不计入端到端成功
-        if d.root_cause_category == gt[key] and key not in after:
-            success += 1
-    return success / len(injected) if injected else 0.0
+    return classify_failures(detected, diagnoses, detected_after, injected).success_rate
 
 
 def total_latency(stats: dict[str, float]) -> float:
