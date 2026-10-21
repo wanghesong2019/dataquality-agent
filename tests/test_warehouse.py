@@ -19,6 +19,26 @@ def test_warehouse_build_and_dws(mini_data):
     assert row[2] == 17.5
 
 
+def test_warehouse_build_all_dwd(mini_data):
+    """§14 #2：6 张新增 DWD 表都建成，类型/行数正确（TRY_CAST 规范化）。"""
+    s = Settings(data_dir=str(mini_data), db_path=str(mini_data / "test.duckdb"))
+    w = Warehouse(s)
+    w.build()
+    conn = w.connect()
+    # 事实表
+    assert conn.execute("SELECT COUNT(*) FROM dwd_payments").fetchone()[0] == 3
+    assert conn.execute("SELECT COUNT(*) FROM dwd_reviews").fetchone()[0] == 2
+    assert conn.execute("SELECT typeof(payment_value) FROM dwd_payments LIMIT 1").fetchone()[0] == "DOUBLE"
+    assert conn.execute("SELECT typeof(review_score) FROM dwd_reviews LIMIT 1").fetchone()[0] == "INTEGER"
+    # 维度表
+    assert conn.execute("SELECT COUNT(*) FROM dwd_products").fetchone()[0] == 2
+    assert conn.execute("SELECT COUNT(*) FROM dwd_sellers").fetchone()[0] == 2
+    assert conn.execute("SELECT COUNT(*) FROM dwd_customers").fetchone()[0] == 3
+    assert conn.execute("SELECT COUNT(*) FROM dwd_geolocation").fetchone()[0] == 2
+    assert conn.execute("SELECT typeof(product_weight_g) FROM dwd_products LIMIT 1").fetchone()[0] == "DOUBLE"
+    assert conn.execute("SELECT typeof(geolocation_lat) FROM dwd_geolocation LIMIT 1").fetchone()[0] == "DOUBLE"
+
+
 def test_clone_warehouse(mini_warehouse):
     dst = str(Path(mini_warehouse.db_path).with_name("clone.duckdb"))
     clone_warehouse(mini_warehouse.db_path, dst)

@@ -68,6 +68,68 @@ class Warehouse:
                 FROM order_items
             """)
 
+        # 2.5) DWD 补全：payments/reviews 事实表 + products/sellers/customers/geolocation 维度表。
+        # 类型规范化用 TRY_CAST：空串/脏值 → NULL（ODS 保留原始证据，检测层 value_range/null_rate 负责抓脏值
+        # ——分层职责 = 加载层健壮、检测层严格）。金额/时间/经纬度/数量转数值；纯字符串维度表锁 schema。
+        if "payments" in built:
+            conn.execute("""
+                CREATE OR REPLACE TABLE dwd_payments AS
+                SELECT
+                    order_id,
+                    TRY_CAST(payment_sequential AS INTEGER) AS payment_sequential,
+                    payment_type,
+                    TRY_CAST(payment_installments AS INTEGER) AS payment_installments,
+                    TRY_CAST(payment_value AS DOUBLE) AS payment_value
+                FROM payments
+            """)
+        if "reviews" in built:
+            conn.execute("""
+                CREATE OR REPLACE TABLE dwd_reviews AS
+                SELECT
+                    review_id, order_id,
+                    TRY_CAST(review_score AS INTEGER) AS review_score,
+                    review_comment_title, review_comment_message,
+                    TRY_CAST(review_creation_date AS TIMESTAMP) AS review_creation_date,
+                    TRY_CAST(review_answer_timestamp AS TIMESTAMP) AS review_answer_timestamp
+                FROM reviews
+            """)
+        if "products" in built:
+            conn.execute("""
+                CREATE OR REPLACE TABLE dwd_products AS
+                SELECT
+                    product_id, product_category_name,
+                    TRY_CAST(product_name_lenght AS INTEGER) AS product_name_lenght,
+                    TRY_CAST(product_description_lenght AS INTEGER) AS product_description_lenght,
+                    TRY_CAST(product_photos_qty AS INTEGER) AS product_photos_qty,
+                    TRY_CAST(product_weight_g AS DOUBLE) AS product_weight_g,
+                    TRY_CAST(product_length_cm AS DOUBLE) AS product_length_cm,
+                    TRY_CAST(product_height_cm AS DOUBLE) AS product_height_cm,
+                    TRY_CAST(product_width_cm AS DOUBLE) AS product_width_cm
+                FROM products
+            """)
+        if "sellers" in built:
+            conn.execute("""
+                CREATE OR REPLACE TABLE dwd_sellers AS
+                SELECT seller_id, seller_zip_code_prefix, seller_city, seller_state
+                FROM sellers
+            """)
+        if "customers" in built:
+            conn.execute("""
+                CREATE OR REPLACE TABLE dwd_customers AS
+                SELECT customer_id, customer_unique_id, customer_zip_code_prefix, customer_city, customer_state
+                FROM customers
+            """)
+        if "geolocation" in built:
+            conn.execute("""
+                CREATE OR REPLACE TABLE dwd_geolocation AS
+                SELECT
+                    geolocation_zip_code_prefix,
+                    TRY_CAST(geolocation_lat AS DOUBLE) AS geolocation_lat,
+                    TRY_CAST(geolocation_lng AS DOUBLE) AS geolocation_lng,
+                    geolocation_city, geolocation_state
+                FROM geolocation
+            """)
+
         # 3) DWS：日粒度指标表（L1 统计检测对比基线的对象）
         if {"orders", "order_items"} <= built:
             conn.execute("""
