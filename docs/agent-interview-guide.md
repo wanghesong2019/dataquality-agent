@@ -176,7 +176,7 @@
 - 10+ 专家、Supervisor 上下文预算爆 → Hierarchical；
 - 高自治探索、容错 > 确定性 → Swarm。
 
-> **本项目映射（选型策略落地，诚实 + 加分）**：我的项目其实**不是"自由协作的多 Agent"，而是"职责分离的流水线"**——五个节点是固定 DAG，`_route` 只是 Router 的一次条件分流（有没有高危→审批/报告），不是 Supervisor 的持续协调。为什么不用 Supervisor/Handoff：巡检流程固定串行、任务边界清晰、无需控制权转移或动态拆分，Workflow 最便宜可预测。这正好呼应"别急着上多 Agent"——如果以后要扩成"检测→多专家归因→多专家整改"的动态分工，才需要升级成 Supervisor。
+> **本项目映射（选型策略落地，诚实 + 加分）**：我的项目其实**不是"自由协作的多 Agent"，而是"职责分离的流水线"**——五个节点是固定 DAG，`_route` 只是 Router 的一次条件分流（有没有高危→审批/报告），不是 Supervisor 的持续协调。为什么不用 Supervisor/Handoff：巡检流程固定串行、任务边界清晰、无需控制权转移或动态拆分，Workflow 最便宜可预测。这正好呼应"别急着上多 Agent"——如果以后要扩成"检测→多专家归因→多专家整改"的动态分工，才需要升级成 Supervisor（**演进规划见 §13**）。
 
 #### b.3 工程陷阱和框架演进趋势
 
@@ -425,6 +425,61 @@
 > **简历定位**：能写，但突出真有的（ground-truth 评测、复检口径、Judge 校准、只读护栏）；别把"可进化"吹满——补完 P1 三块后才能理直气壮说"质量工程"。
 
 **来源**：用户提供的 2026 Agent 质量工程文档 + 本项目对照分析。
+
+---
+
+## 13. 项目演进规划：真·多 Agent（Supervisor）——把"多 Agent"关键词做实
+
+> 定位：**不是新增项目，而是把 `dataquality-agent` 从"单图流水线"演进成"单图 → 多 Agent"两代**，补齐当前简历最大拷问点。
+
+### 为什么做
+
+- 当前是单图 5 节点 DAG，**不是真多 Agent**（§3 已诚实标注）；但简历"核心能力"写了"多 Agent 编排"，而 22 份 JD 里"多 Agent 协作/编排"出现 14 次。面试官最可能戳的就是"你这算真多 Agent 吗？"。
+- 补法两条：弱化措辞（回避），或把架构做实（**推荐**）。
+
+### 做什么（复用业务，改架构不改业务）
+
+- 复用"数据质量巡检"业务 + ground-truth 注入器 + 复检口径 + 评测框架，**不换业务、不从零搭评测**（换业务 = 白扔现有评测资产）。
+- 架构：单图 5 节点 → **Supervisor + 4 专职 Agent**（orchestrator 分诊 + 规则检测 / 血缘归因 / SQL 排查 / 案例检索），各 Agent 独立 system prompt + 工具集 + 预算。
+- 对照指标：归因正确率、单次 token、latency、失败分型——与单图版 before/after 对比（这才是"可进化"的证据）。
+
+### 简历怎么呈现（一个项目，两代演进）
+
+**不拆成两个项目**——同一个业务换个架构写两遍 = 注水，必被识破。写成两代演进并主动讲"为什么改"：
+
+> "第一版单图 5 节点流水线，职责耦合、单点故障整链中断、token 预算难控；重构为 Supervisor + 4 专职 Agent，归因正确率 0.75 → X、单次 token 78 万 → Y。"
+
+一个有演进史的项目 > 两个平铺项目，同时证明架构判断力 + 可进化（呼应 §12 Data Flywheel）。
+
+### 时机（排在 §14 数据基座 + §12 P1 之后）
+
+整体顺序：**§14 数据基座（先铺实数据）→ §12 P1（补可评测证据）→ §13 多 Agent（再做演进）**。先花 1~3 天补 §12 的 P1（Trajectory Eval / Failure Taxonomy / 步骤级 Trace），再花 1~2 周做 Supervisor 版；否则"可评测"证据没补齐又开新坑。
+
+**来源**：用户 2026-10-21 简历复盘（"项目数量 vs 深项目"决策 + 多 Agent 缺口）+ §3 选型决策 + §12 质量工程。
+
+---
+
+## 14. 数据基座升级：把 Olist 9 表用起来（去 demo 味）
+
+> 定位：当前 demo 味不是"数据小"，是"数据接进来但没用起来"——`warehouse.py:9-19` 已映射全部 9 张 Olist 表，但 DWD/DWS/检测只用了 orders + order_items，其余 7 张表（payments/reviews/products/sellers/customers/geolocation/类别翻译）落 ODS 后 0 引用。**先铺数据基座，再谈 P1 评测和多 Agent 演进**（顺序：§14 → §12 P1 → §13）。
+
+### TODO 清单（逐条勾选）
+
+| # | 任务 | 改哪个文件 | 面试怎么讲 |
+|---|---|---|---|
+| 1 | ~~确认 9 张 CSV 是否齐全~~ ✅ **已确认**：9 张全齐，在 `/data/home/hermes/olist/`（2026-10-12 下载，共 ~123MB）；此前"搜不到"是 kaiChen 读不了 hermes 家目录（750）所致，非数据丢失 | — | 前置依赖，已通过 |
+| 2 | ~~DWD 补全~~ ✅ **已完成**：6 张新 DWD（payments/reviews/products/sellers/customers/geolocation）用 TRY_CAST 类型规范化（空串→NULL）；真实 Olist 验证 8 张 DWD 全建（orders 99441 / items 112650 / payments 103886 / reviews 99224 / products 32951 / sellers 3095 / customers 99441 / geolocation 1000163），115 tests 全绿 | `data/warehouse.py` | "9 表星型模型，事实表 + 维度表都做了类型规范化" |
+| 3 | DWS 补聚合：`seller_metrics`（GMV/单量/评分）、`category_metrics`（品类）、`payment_summary`（分期/支付方式） | `data/warehouse.py` | L1 volume/distribution 从 `daily_metrics` 一根独苗变成多基线 |
+| 4 | 跨表一致性检测（现在最缺）：订单金额 vs 明细求和、支付分期/金额 vs 订单、**已取消订单却有评价**、邮编城市不一致 | `detection/rules.py`（新增 check_*） | "数据质量最招牌的是跨表一致性，我按 FK 逐对校验" |
+| 5 | 孤儿外键扩展：`check_orphan` 已存在，从"order_items→orders"扩到 order_items→products/sellers、payments→orders、reviews→orders、orders→customers | `detection/rules.py` | 把已有能力铺满真实 FK 网，而非只验一条 |
+| 6 | 血缘做实：让 `lineage.py` 的边对应真正 build 出来的表（别再"挂地图不打仗"） | `data/lineage.py` | 血缘和真实 DWD/DWS 对齐，可回答"这字段源头在哪" |
+| 7 | 注入器扩展：把新异常类型加进 ground-truth | `data/injector.py` | 评测集变厚，F1/归因/整改/端到端重新跑 |
+
+**验证**：`pytest` 全绿 + `run_eval.py` 复跑，同步更新简历/文档里的数字（F1 / 归因 / 整改 / 端到端 / token）。
+
+> **去 demo 味的真解药是"小而完整 + 可复现"，不是堆体量**：面试官不在乎 100 万行 vs 1 亿行（DuckDB 都能跑），在乎"数仓模型像不像真的、检测能不能抓到真实问题类别"。"单机 DuckDB + Olist、评测可复现、面试可当场演示"本身是**优势**，前提是 9 表星型模型真跑起来、而非 2 表。
+
+**来源**：用户 2026-10-21 数据层复盘（"demo 味 / 高射炮打蚊子"）+ 代码核对（warehouse.py / lineage.py / detection 表引用统计：orders×6、dwd_orders×5、daily_metrics×4、dwd_order_items×1，其余 0）。
 
 ---
 
