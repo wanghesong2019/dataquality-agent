@@ -18,6 +18,8 @@
 """
 from dataclasses import dataclass, field
 
+from dataquality_agent.eval.trajectory import TrajectoryReport
+
 
 @dataclass
 class DetectionMetrics:
@@ -42,6 +44,7 @@ class EvalReport:
     total_tokens: int = 0
     total_cost: float = 0.0
     llm_calls: int = 0
+    trajectory: TrajectoryReport | None = None
 
 
 def _keys(items) -> set:

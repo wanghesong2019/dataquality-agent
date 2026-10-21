@@ -86,6 +86,10 @@ def main() -> None:
     print(f"检测 P/R/F1：P={report.detection.precision:.3f} R={report.detection.recall:.3f} F1={report.detection.f1:.3f}")
     print(f"检测按类型（F1）：{ {k: round(v.f1, 3) for k, v in report.detection_by_type.items()} }")
     print(f"归因正确率：{report.attribution_accuracy:.3f}")
+    if report.trajectory:
+        t = report.trajectory
+        schema_part = f" / sql前查schema {t.schema_before_sql_rate:.0%}" if t.schema_before_sql_rate is not None else ""
+        print(f"轨迹质量：合格率 {t.pass_rate:.0%} / 平均 {t.avg_calls:.1f} 次调用 / 冗余 {t.total_redundant} 次{schema_part}")
     print(f"整改成功率（复检，整体）：{report.remediation_success:.3f}")
     print(f"整改成功率（分型）：{ {k: round(v, 3) for k, v in by_rev.items()} }")
     print(f"端到端成功率：{report.end_to_end_success:.3f}")

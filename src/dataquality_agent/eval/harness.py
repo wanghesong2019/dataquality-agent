@@ -9,6 +9,7 @@ from dataquality_agent.eval.metrics import (
     remediation_success,
     total_latency,
 )
+from dataquality_agent.eval.trajectory import evaluate_trajectories
 
 # 可逆 = SQL 可复原；数据丢失 = 原始值已毁、需上游重跑（复检口径分型的关键）
 REVERSIBLE_TYPES = {"duplicate", "value_range"}
@@ -78,4 +79,5 @@ def run_eval(injected, detected_before, diagnoses, detected_after, stats, cost_l
         total_tokens=cost_ledger.total_tokens if cost_ledger else 0,
         total_cost=cost_ledger.total_cost if cost_ledger else 0.0,
         llm_calls=cost_ledger.llm_calls if cost_ledger else 0,
+        trajectory=evaluate_trajectories(diagnoses),
     )
