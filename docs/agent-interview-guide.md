@@ -342,7 +342,7 @@
 - Trace = 因果树（定位单次链路），Log = 事件流（解释状态迁移），Metric = 趋势告警（P95/错误率/成本），四者用 trace_id 关联。
 
 **本项目怎么答**：
-> 每次 LLM 调用都埋一个 `Span`（记录输入/输出/token/耗时），`CostLedger` 累计 token/成本/调用次数（`observability/tracing.py:34`、`llm.py`）。可观测是**旁路**——Langfuse 惰性导入、未配置就 no-op，保证监控挂了不拖垮主流程（`observability/tracing.py:64`）。评估报告里直接输出 `total_tokens/total_cost/llm_calls/latency`（`eval/metrics.py:33`），所以"单次巡检 ~78 万 token / ~39s"是有账可查的。
+> 每次 LLM 调用都埋一个 `Span`（记录输入/输出/token/耗时），`CostLedger` 累计 token/成本/调用次数（`observability/tracing.py`、`llm.py`）。可观测是**旁路**：`Tracer` 永远记内存、`backend` 可选（`end_span` 里 `if self.backend is not None` 才转发），监控挂了不拖垮主流程；`LangfuseBackend` 惰性导入 + 未配 key 就 no-op，由 `wiring.py` 按 `LANGFUSE_PUBLIC_KEY/SECRET_KEY` env 接进链路。评估报告直接输出 `total_tokens/total_cost/llm_calls/latency`（`eval/metrics.py`），所以"单次巡检 ~78 万 token / ~39s"是有账可查的。
 > **Token 计数（已修复）**：从「按字符估算」改为**读 API 返回的 `usage.total_tokens` 真实计数**（`llm.py:20` 的 `_count_tokens`），客户端不返回 usage 时才回退字符估算兜底。所以"78 万 token"现在有 API 依据，成本台账可信。
 
 **来源**：agent-interview observability + 阿里云《RDS Agent 可观测》。

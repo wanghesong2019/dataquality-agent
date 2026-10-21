@@ -1,4 +1,5 @@
 """生产运行时装配：把数据层/模型/工具/图接起来，返回 PatrolRuntime。"""
+import os
 import sqlite3
 from pathlib import Path
 
@@ -16,8 +17,17 @@ from dataquality_agent.config import Settings
 from dataquality_agent.data.lineage import Lineage
 from dataquality_agent.data.warehouse import Warehouse
 from dataquality_agent.llm import DeepSeekClient, LLMAdapter
-from dataquality_agent.observability.tracing import Tracer
+from dataquality_agent.observability.tracing import LangfuseBackend, Tracer
 from dataquality_agent.rag.cases import build_retriever
+
+
+def _build_tracer_backend() -> LangfuseBackend:
+    """按 env 配 Langfuse 上报后端；未配 key 时内部惰性导入 + no-op（不拖主流程）。"""
+    return LangfuseBackend(
+        public_key=os.environ.get("LANGFUSE_PUBLIC_KEY"),
+        secret_key=os.environ.get("LANGFUSE_SECRET_KEY"),
+        host=os.environ.get("LANGFUSE_HOST"),
+    )
 
 
 def build_runtime(settings: Settings | None = None) -> PatrolRuntime:
@@ -30,7 +40,7 @@ def build_runtime(settings: Settings | None = None) -> PatrolRuntime:
     warehouse.build()
     conn = warehouse.connect()
 
-    adapter = LLMAdapter(DeepSeekClient(), tracer=Tracer())
+    adapter = LLMAdapter(DeepSeekClient(), tracer=Tracer(backend=_build_tracer_backend()))
     tools = build_diagnose_tools(conn, Lineage(), build_retriever())
 
     # HITL 持久化：审批暂停/恢复的状态落盘 SQLite，进程重启不丢（生产可换 Postgres）
