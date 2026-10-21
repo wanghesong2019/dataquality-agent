@@ -16,6 +16,9 @@ ROOT_CAUSE_CATEGORY = {
     "lineage_break": "上游数据延迟",  # 下游停更 → 上游数据未及时到达
     "freshness": "上游数据延迟",      # 数据停更/迟到
     "schema_drift": "schema变更",     # 列被删/改类型
+    "amount_mismatch": "脏数据注入",    # 支付金额被改偏 → 支付与明细对不上
+    "state_conflict": "脏数据注入",     # 状态与评价矛盾（已取消却有评价）
+    "zip_inconsistency": "脏数据注入",  # 邮编映射到多个城市
 }
 
 
@@ -151,6 +154,58 @@ class Injector:
             location=f"column {drop_column} dropped from {table}",
         )
 
+    def inject_amount_mismatch(self, conn, n: int = 1, delta: float = 100.0) -> InjectedAnomaly:
+        """把 n 个订单的支付金额整体改偏 delta，制造「支付总额 vs 明细总额」不一致。"""
+        orders = conn.execute(
+            "SELECT order_id FROM payments GROUP BY order_id LIMIT ?", [n]
+        ).fetchall()
+        for (order_id,) in orders:
+            conn.execute(
+                "UPDATE payments SET payment_value = payment_value + ? WHERE order_id = ?",
+                [delta, order_id],
+            )
+        return InjectedAnomaly(
+            type="amount_mismatch", table="orders", column="payment_total vs item_total",
+            root_cause=f"{len(orders)} orders payment_value offset by {delta}",
+            root_cause_category=ROOT_CAUSE_CATEGORY["amount_mismatch"],
+            location=f"{len(orders)} orders payment total desynced from items",
+        )
+
+    def inject_state_conflict(self, conn, n: int = 1) -> InjectedAnomaly:
+        """给 n 个已取消订单插入评价，制造「已取消却有评价」状态矛盾。"""
+        orders = conn.execute(
+            "SELECT order_id FROM orders WHERE order_status = 'canceled' LIMIT ?", [n]
+        ).fetchall()
+        for (order_id,) in orders:
+            conn.execute(
+                "INSERT INTO reviews (review_id, order_id, review_score) VALUES (?, ?, 1)",
+                [f"inj_{order_id}", order_id],
+            )
+        return InjectedAnomaly(
+            type="state_conflict", table="orders", column="order_status",
+            root_cause=f"{len(orders)} canceled orders given a review",
+            root_cause_category=ROOT_CAUSE_CATEGORY["state_conflict"],
+            location=f"{len(orders)} reviews inserted for canceled orders",
+        )
+
+    def inject_zip_inconsistency(self, conn, n: int = 1) -> InjectedAnomaly:
+        """给 n 个已有邮编插入第二个城市映射，制造「邮编→多城市」矛盾。"""
+        zips = conn.execute(
+            "SELECT geolocation_zip_code_prefix FROM geolocation GROUP BY geolocation_zip_code_prefix LIMIT ?",
+            [n],
+        ).fetchall()
+        for (zip_code,) in zips:
+            conn.execute(
+                "INSERT INTO geolocation VALUES (?, -99.0, -99.0, 'injected_city', 'ZZ')",
+                [zip_code],
+            )
+        return InjectedAnomaly(
+            type="zip_inconsistency", table="geolocation", column="geolocation_zip_code_prefix",
+            root_cause=f"{len(zips)} zip codes mapped to a second city",
+            root_cause_category=ROOT_CAUSE_CATEGORY["zip_inconsistency"],
+            location=f"{len(zips)} geolocation rows inserted",
+        )
+
     def run(self, conn, specs: list[dict]) -> GroundTruth:
         """按 specs 执行一组注入，返回完整 ground-truth。"""
         gt = GroundTruth()
@@ -193,6 +248,14 @@ class Injector:
                 gt.injections.append(
                     self.inject_schema(conn, spec["table"], spec["drop_column"])
                 )
+            elif t == "amount_mismatch":
+                gt.injections.append(
+                    self.inject_amount_mismatch(conn, spec.get("n", 1), spec.get("delta", 100.0))
+                )
+            elif t == "state_conflict":
+                gt.injections.append(self.inject_state_conflict(conn, spec.get("n", 1)))
+            elif t == "zip_inconsistency":
+                gt.injections.append(self.inject_zip_inconsistency(conn, spec.get("n", 1)))
             else:
                 raise ValueError(f"unknown injection type: {t}")
         return gt

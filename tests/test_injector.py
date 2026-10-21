@@ -93,3 +93,47 @@ def test_inject_schema(mini_warehouse):
     assert a.root_cause_category == "schema变更"
     cols = [r[0] for r in conn.execute("DESCRIBE dwd_orders").fetchall()]
     assert "order_approved_at" not in cols
+
+
+def test_inject_amount_mismatch(mini_warehouse):
+    inj = Injector(mini_warehouse)
+    conn = inj.connect()
+    gt = inj.run(conn, [{"type": "amount_mismatch", "n": 1, "delta": 100.0}])
+    a = gt.injections[0]
+    assert a.type == "amount_mismatch"
+    assert a.root_cause_category == "脏数据注入"
+    n = conn.execute("""
+        WITH pay AS (SELECT order_id, SUM(payment_value) paid FROM payments GROUP BY order_id),
+             item AS (SELECT order_id, SUM(price + freight_value) amount FROM order_items GROUP BY order_id)
+        SELECT COUNT(*) FROM pay JOIN item ON pay.order_id = item.order_id WHERE ABS(pay.paid - item.amount) > 0.01
+    """).fetchone()[0]
+    assert n >= 1
+
+
+def test_inject_state_conflict(mini_warehouse):
+    inj = Injector(mini_warehouse)
+    conn = inj.connect()
+    gt = inj.run(conn, [{"type": "state_conflict", "n": 1}])
+    a = gt.injections[0]
+    assert a.type == "state_conflict"
+    assert a.root_cause_category == "脏数据注入"
+    n = conn.execute("""
+        SELECT COUNT(*) FROM orders o JOIN reviews r ON o.order_id = r.order_id WHERE o.order_status = 'canceled'
+    """).fetchone()[0]
+    assert n >= 1
+
+
+def test_inject_zip_inconsistency(mini_warehouse):
+    inj = Injector(mini_warehouse)
+    conn = inj.connect()
+    gt = inj.run(conn, [{"type": "zip_inconsistency", "n": 1}])
+    a = gt.injections[0]
+    assert a.type == "zip_inconsistency"
+    assert a.root_cause_category == "脏数据注入"
+    n = conn.execute("""
+        SELECT COUNT(*) FROM (
+            SELECT geolocation_zip_code_prefix FROM geolocation
+            GROUP BY geolocation_zip_code_prefix HAVING COUNT(DISTINCT geolocation_city) > 1
+        )
+    """).fetchone()[0]
+    assert n >= 1

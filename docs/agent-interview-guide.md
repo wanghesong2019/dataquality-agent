@@ -473,7 +473,7 @@
 | 4 | ~~跨表一致性检测~~ ✅ **已完成**：`check_amount_mismatch`/`check_state_conflict`/`check_zip_inconsistency` + `run_consistency_checks`，真实 Olist 检出 380 金额不一致 + 609 状态矛盾 + 8556 邮编矛盾；评测改 **baseline-aware**（真实问题从误报扣除，检测 F1 仍 1.0） | `detection/rules.py` + `eval/metrics.py` + `scripts/run_eval.py` | "检测在真实数据上抓到真实问题，评测口径诚实" |
 | 5 | ~~孤儿外键扩展~~ ✅ **已完成**：`check_orphan` 铺满 order_items→products/sellers、payments→orders、reviews→orders、orders→customers（真实 Olist 全 0，注入才触发）；orphan 注入改删叶子父表 products 避免爆炸半径 | `detection/rules.py` + `scripts/run_eval.py` | "FK 网全铺，注入口径与 ground-truth 对齐" |
 | 6 | 血缘做实：让 `lineage.py` 的边对应真正 build 出来的表（别再"挂地图不打仗"） | `data/lineage.py` | 血缘和真实 DWD/DWS 对齐，可回答"这字段源头在哪" |
-| 7 | 注入器扩展：把新异常类型加进 ground-truth | `data/injector.py` | 评测集变厚，F1/归因/整改/端到端重新跑 |
+| 7 | ~~注入器扩展~~ ✅ **已完成**：`inject_amount_mismatch`/`inject_state_conflict`/`inject_zip_inconsistency` + ROOT_CAUSE_CATEGORY 对齐，123 tests 全绿。注：这三类是 **always-on**（真实数据基线就命中），注入 F1 平凡（=1.0），其「证明」靠真实基线（380/609/8556）而非注入 F1 | `data/injector.py` | "注入器覆盖全检测类型；always-on 检测靠真实基线证明" |
 
 **验证**：`pytest` 全绿 + `run_eval.py` 复跑，同步更新简历/文档里的数字（F1 / 归因 / 整改 / 端到端 / token）。
 
