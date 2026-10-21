@@ -30,9 +30,10 @@ from dataquality_agent.rag.cases import build_retriever
 # 注入计划：可逆（duplicate/value_range）+ 数据丢失（orphan/null_rate），n 按真实数据量定。
 # null_rate 要超 5% 阈值，delivered 约 9.9w 单 → n 需 ~6000。
 INJECTION_SPECS = [
-    # 顺序注意：orphan 先删 20 单，duplicate 再复制 3 单，避免 orphan 删掉 duplicate 复制的行
-    {"type": "orphan", "child_table": "order_items", "parent_table": "orders",
-     "parent_pk": "order_id", "child_fk": "order_id", "n": 20},
+    # orphan 删「叶子」父表 products（而非中心表 orders）：删 orders 会同时孤儿 order_items/payments/reviews
+    # 三个子表，一次注入被检出成 3 条、与 ground-truth 对不上。删 products 只破坏 order_items→products 一条 FK。
+    {"type": "orphan", "child_table": "order_items", "parent_table": "products",
+     "parent_pk": "product_id", "child_fk": "product_id", "n": 20},
     {"type": "duplicate", "table": "orders", "key_cols": ["order_id"], "n": 3},
     {"type": "value_range", "table": "order_items", "column": "price", "key_cols": ["order_id", "order_item_id"], "n": 3},
     {"type": "null_rate", "table": "orders", "column": "order_delivered_customer_date",
@@ -50,6 +51,9 @@ def main() -> None:
     clean = Injector(settings).connect()
     current_date = str(clean.execute("SELECT MAX(order_purchase_timestamp::DATE) FROM dwd_orders").fetchone()[0])
     expected_schema = {"dwd_orders": {r[0]: r[1] for r in clean.execute("DESCRIBE dwd_orders").fetchall()}}
+    # 捕获干净基线：跨表一致性会检出真实数据自带的真问题（如 Olist 380 单支付金额对不上），
+    # 这些是「已知基线」而非注入误报，评测时从误报里扣除（baseline-aware eval）。
+    baseline = run_detection(clean, current_date=current_date, expected_schema=expected_schema).anomalies
 
     # 2) clone 干净数仓 → 一次性 eval DB，注入异常
     clone_warehouse(settings.db_path, eval_db)
@@ -74,7 +78,8 @@ def main() -> None:
 
     # 6) 组装报告 + 分型
     report = run_eval(injected, detected_before, diagnoses, detected_after,
-                      detection_report.stats, adapter.cost_ledger, llm_seconds=tracer.total_duration())
+                      detection_report.stats, adapter.cost_ledger, llm_seconds=tracer.total_duration(),
+                      baseline=baseline)
     by_rev = remediation_success_by_reversibility(detected_before, detected_after, injected)
 
     print("=" * 64)

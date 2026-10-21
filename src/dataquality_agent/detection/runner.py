@@ -51,6 +51,10 @@ def run_detection(conn: duckdb.DuckDBPyConnection,
     report.stats["l0_rules"] = round(time.time() - t0, 4)
 
     t0 = time.time()
+    report.anomalies += rules.run_consistency_checks(conn)
+    report.stats["l0_cross_table"] = round(time.time() - t0, 4)
+
+    t0 = time.time()
     watermarks = _watermarks(conn)
     report.anomalies += stats.detect_lineage_break(watermarks, Lineage())
     report.stats["l1_lineage"] = round(time.time() - t0, 4)

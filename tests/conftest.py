@@ -37,7 +37,7 @@ def mini_data(tmp_path):
         "payment_sequential": [1, 2, 1],
         "payment_type": ["credit_card", "voucher", "boleto"],
         "payment_installments": [1, 1, 3],
-        "payment_value": [15.0, 20.0, 5.0],
+        "payment_value": [15.0, 20.0, 6.0],
     })
     reviews = pd.DataFrame({
         "review_id": ["r1", "r2"],

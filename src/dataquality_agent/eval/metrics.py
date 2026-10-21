@@ -49,12 +49,17 @@ def _keys(items) -> set:
     return {(a.type, a.table) for a in items}
 
 
-def evaluate_detection(detected, injected) -> DetectionMetrics:
-    """对比检测结果与注入的 ground-truth，按 (type, table) 匹配算 precision/recall/F1。"""
+def evaluate_detection(detected, injected, baseline=None) -> DetectionMetrics:
+    """对比检测结果与注入的 ground-truth，按 (type, table) 匹配算 precision/recall/F1。
+
+    baseline = 干净数据上本就存在的「已知问题」集合（如真实 Olist 的支付金额对不上）。
+    评测口径：误报 = 检出 - 注入 - 基线（基线不是注入误报，而是真实数据自带的真问题）。
+    """
     det = _keys(detected)
     inj = _keys(injected)
+    base = _keys(baseline) if baseline else set()
     tp = len(det & inj) # 检测到且真注入过
-    fp = len(det - inj) # 检查到但没注入（误报）
+    fp = len(det - inj - base) # 检查到但没注入、也非已知基线（真误报）
     fn = len(inj - det) # 注入过但没检测到 （漏报）
     precision = tp / (tp + fp) if (tp + fp) else 0.0 # 报出来的异常有多少是真的
     recall = tp / (tp + fn) if (tp + fn) else 0.0 # 真实异常里抓到了多少
@@ -62,17 +67,18 @@ def evaluate_detection(detected, injected) -> DetectionMetrics:
     return DetectionMetrics(tp=tp, fp=fp, fn=fn, precision=precision, recall=recall, f1=f1)
 
 
-def evaluate_detection_by_type(detected, injected) -> dict[str, DetectionMetrics]:
-    """按异常类型分别算 P/R/F1（面试能报"duplicate 的 F1 是多少"）。"""
+def evaluate_detection_by_type(detected, injected, baseline=None) -> dict[str, DetectionMetrics]:
+    """按异常类型分别算 P/R/F1（面试能报"duplicate 的 F1 是多少"）。baseline 同 evaluate_detection。"""
     det = _keys(detected)
     inj = _keys(injected)
+    base = _keys(baseline) if baseline else set()
     types = sorted({k[0] for k in det} | {k[0] for k in inj})
     result = {}
     for t in types:
         det_t = {k for k in det if k[0] == t}
         inj_t = {k for k in inj if k[0] == t}
         tp = len(det_t & inj_t)
-        fp = len(det_t - inj_t)
+        fp = len(det_t - inj_t - base)
         fn = len(inj_t - det_t)
         precision = tp / (tp + fp) if (tp + fp) else 0.0
         recall = tp / (tp + fn) if (tp + fn) else 0.0
