@@ -470,8 +470,8 @@
 | 1 | ~~确认 9 张 CSV 是否齐全~~ ✅ **已确认**：9 张全齐，在 `/data/home/hermes/olist/`（2026-10-12 下载，共 ~123MB）；此前"搜不到"是 kaiChen 读不了 hermes 家目录（750）所致，非数据丢失 | — | 前置依赖，已通过 |
 | 2 | ~~DWD 补全~~ ✅ **已完成**：6 张新 DWD（payments/reviews/products/sellers/customers/geolocation）用 TRY_CAST 类型规范化（空串→NULL）；真实 Olist 验证 8 张 DWD 全建（orders 99441 / items 112650 / payments 103886 / reviews 99224 / products 32951 / sellers 3095 / customers 99441 / geolocation 1000163），115 tests 全绿 | `data/warehouse.py` | "9 表星型模型，事实表 + 维度表都做了类型规范化" |
 | 3 | DWS 补聚合：`seller_metrics`（GMV/单量/评分）、`category_metrics`（品类）、`payment_summary`（分期/支付方式） | `data/warehouse.py` | L1 volume/distribution 从 `daily_metrics` 一根独苗变成多基线 |
-| 4 | 跨表一致性检测（现在最缺）：订单金额 vs 明细求和、支付分期/金额 vs 订单、**已取消订单却有评价**、邮编城市不一致 | `detection/rules.py`（新增 check_*） | "数据质量最招牌的是跨表一致性，我按 FK 逐对校验" |
-| 5 | 孤儿外键扩展：`check_orphan` 已存在，从"order_items→orders"扩到 order_items→products/sellers、payments→orders、reviews→orders、orders→customers | `detection/rules.py` | 把已有能力铺满真实 FK 网，而非只验一条 |
+| 4 | ~~跨表一致性检测~~ ✅ **已完成**：`check_amount_mismatch`/`check_state_conflict`/`check_zip_inconsistency` + `run_consistency_checks`，真实 Olist 检出 380 金额不一致 + 609 状态矛盾 + 8556 邮编矛盾；评测改 **baseline-aware**（真实问题从误报扣除，检测 F1 仍 1.0） | `detection/rules.py` + `eval/metrics.py` + `scripts/run_eval.py` | "检测在真实数据上抓到真实问题，评测口径诚实" |
+| 5 | ~~孤儿外键扩展~~ ✅ **已完成**：`check_orphan` 铺满 order_items→products/sellers、payments→orders、reviews→orders、orders→customers（真实 Olist 全 0，注入才触发）；orphan 注入改删叶子父表 products 避免爆炸半径 | `detection/rules.py` + `scripts/run_eval.py` | "FK 网全铺，注入口径与 ground-truth 对齐" |
 | 6 | 血缘做实：让 `lineage.py` 的边对应真正 build 出来的表（别再"挂地图不打仗"） | `data/lineage.py` | 血缘和真实 DWD/DWS 对齐，可回答"这字段源头在哪" |
 | 7 | 注入器扩展：把新异常类型加进 ground-truth | `data/injector.py` | 评测集变厚，F1/归因/整改/端到端重新跑 |
 
