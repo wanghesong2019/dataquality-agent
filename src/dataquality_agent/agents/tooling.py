@@ -4,10 +4,11 @@ from dataquality_agent.tools.metadata import get_table_schema
 from dataquality_agent.tools.sql import SafeSQL
 
 
-def build_diagnose_tools(conn, lineage, retriever, sql_whitelist=None) -> list[Tool]:
+def build_diagnose_tools(conn, lineage, retriever, sql_whitelist=None, tracer=None) -> list[Tool]:
     """构造归因 Agent 的工具：schema / lineage / cases / sql（只读）。
 
     sql 的只读护栏走 SafeSQL；表白名单缺省 = 当前数仓的全部表（从 SHOW TABLES 派生）。
+    tracer 用于给 cases 里的 RAG 检索埋 span（步骤级 Trace）。
     """
     whitelist = sql_whitelist or {t[0] for t in conn.execute("SHOW TABLES").fetchall()}
     safe_sql = SafeSQL(conn, whitelist)
@@ -16,7 +17,11 @@ def build_diagnose_tools(conn, lineage, retriever, sql_whitelist=None) -> list[T
     matched_case_ids: list[str] = []
 
     def cases_func(args: dict) -> str:
-        results = retriever.search(args["query"], k=3)
+        if tracer is not None:
+            with tracer.span("retrieve", input=args["query"]):
+                results = retriever.search(args["query"], k=3)
+        else:
+            results = retriever.search(args["query"], k=3)
         for r in results:
             if r["id"] not in matched_case_ids:
                 matched_case_ids.append(r["id"])

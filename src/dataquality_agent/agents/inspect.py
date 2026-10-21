@@ -53,10 +53,14 @@ c) return {"anomalies": report.anomalies} 返回什么？给谁？状态怎么�
 一句话收束：节点不是"调用下一个节点"，而是"交回部分更新 → 引擎合并 → 引擎交给下一个节点"。
 """
 from dataquality_agent.detection.runner import run_detection
+from dataquality_agent.observability.tracing import trace_step
 
 
 def make_inspect_node(conn, semantic_model=None):
     """返回巡检节点函数。conn/semantic_model 通过闭包注入（不放进 state——state 需可序列化）。"""
+    tracer = getattr(semantic_model, "tracer", None)
+
+    @trace_step(tracer, "node:inspect")
     def inspect(state):
         report = run_detection(conn, semantic_model=semantic_model)
         return {"anomalies": report.anomalies}

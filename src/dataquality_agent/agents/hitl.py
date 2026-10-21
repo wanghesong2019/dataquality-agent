@@ -27,6 +27,7 @@
 from langgraph.types import interrupt
 
 from dataquality_agent.models import Approval, Remediation
+from dataquality_agent.observability.tracing import trace_step
 
 
 def needs_approval(remediations: list[Remediation]) -> bool:
@@ -34,8 +35,9 @@ def needs_approval(remediations: list[Remediation]) -> bool:
     return any(r.requires_approval for r in remediations)
 
 
-def make_approve_node():
+def make_approve_node(tracer=None):
     """返回审批节点函数。高危整改时 interrupt 暂停，恢复后记录审批结果。"""
+    @trace_step(tracer, "node:approve")
     def approve(state):
         """审批节点：过滤高危方案 → interrupt 暂停等人工 → 把 resume 的 decision 映射成 Approval。
         约定的 resume 格式：{"0": "approved", "1": "rejected"}（下标对应 pending 顺序）。"""

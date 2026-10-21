@@ -1,10 +1,14 @@
 """报告 Agent：汇总巡检结果。"""
 from dataquality_agent.models import Report
+from dataquality_agent.observability.tracing import trace_step
 from dataquality_agent.prompts import build_report_prompt
 
 
 def make_report_node(model):
     """返回报告节点函数。model 通过闭包注入。"""
+    tracer = getattr(model, "tracer", None)
+
+    @trace_step(tracer, "node:report")
     def report(state):
         n_anomalies = len(state.get("anomalies", []))
         n_remediations = len(state.get("remediations", []))

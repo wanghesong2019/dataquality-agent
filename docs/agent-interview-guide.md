@@ -405,7 +405,7 @@
 
 | 关键词 | 本项目现状 | 判定 |
 |---|---|---|
-| 可观测 | `Tracer` 只记 LLM 调用，缺步骤级 Trace（tool/检索/节点未埋 span） | 🟡 半 |
+| 可观测 | `Tracer` 步骤级 Trace：节点/LLM/工具/检索都埋 span、按 parent 组树（render_tree/summary_by_name） | 🟢 较强 |
 | 可评测 | Outcome(F1/归因/整改/端到端) + Trajectory(过程合格率/冗余/schema优先) + Judge 校准(44%/78%) + RAG(Recall@K/MRR) | 🟢 强 |
 | 可调试 | 有 `evidence_chain`（真实工具历史）+ Failure Taxonomy（漏检/归因错/整改失败分型） | 🟢 较强 |
 | 可进化 | 缺 Data Flywheel（一次性 eval，非闭环） | 🔴 缺 |
@@ -415,7 +415,7 @@
 - **P1（材料最现成、面试最加分）**：
   1. ~~**Trajectory Evaluation**~~ ✅ **已完成**：`eval/trajectory.py` 用 `evidence_chain` 规则化评过程（无冗余重复调用 / 用 SQL 前先查 schema / 证据 ≥2 工具），接入 EvalReport、`run_eval.py` 输出轨迹质量，129 tests 全绿。
   2. ~~**Failure Taxonomy**~~ ✅ **已完成**：`eval/metrics.py` 的 `classify_failures` 把端到端失败按「漏检 / 归因错 / 整改失败 / 成功」四桶分型，`run_eval.py` 输出失败分型，134 tests 全绿。
-  3. **步骤级 Trace**——给 tool 调用、检索、各节点（inspect/diagnose/remediate/approve）也埋 span，凑成 Trace 树。
+  3. ~~**步骤级 Trace**~~ ✅ **已完成**：`Span.parent` + ContextVar 自动父挂，节点/LLM/工具/检索都埋 span（node:*/tool:*/retrieve/llm），`render_tree`/`summary_by_name` 定位最慢一步，140 tests 全绿。
 - **P2**：
   4. **Safety Evaluation**——prompt injection / 权限越界 / 危险操作的测试用例（不止 SafeSQL 机制，要有评测）。
   5. **Regression 进 CI**——benchmark 集 + eval + 对比 baseline 的回归脚本。

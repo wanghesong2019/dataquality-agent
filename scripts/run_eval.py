@@ -68,7 +68,7 @@ def main() -> None:
     # 4) 归因 + 整改（DeepSeek function calling）
     tracer = Tracer()
     adapter = LLMAdapter(DeepSeekClient(), tracer=tracer)
-    tools = build_diagnose_tools(eval_conn, Lineage(), build_retriever())
+    tools = build_diagnose_tools(eval_conn, Lineage(), build_retriever(), tracer=tracer)
     diagnoses = make_diagnose_node(adapter, tools)({"anomalies": detected_before})["diagnoses"]
     remediations = make_remediate_node(adapter)(
         {"anomalies": detected_before, "diagnoses": diagnoses})["remediations"]
@@ -78,7 +78,7 @@ def main() -> None:
 
     # 6) 组装报告 + 分型
     report = run_eval(injected, detected_before, diagnoses, detected_after,
-                      detection_report.stats, adapter.cost_ledger, llm_seconds=tracer.total_duration(),
+                      detection_report.stats, adapter.cost_ledger, llm_seconds=tracer.root_duration(),
                       baseline=baseline)
     by_rev = remediation_success_by_reversibility(detected_before, detected_after, injected)
 

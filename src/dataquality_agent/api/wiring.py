@@ -41,7 +41,7 @@ def build_runtime(settings: Settings | None = None) -> PatrolRuntime:
     conn = warehouse.connect()
 
     adapter = LLMAdapter(DeepSeekClient(), tracer=Tracer(backend=_build_tracer_backend()))
-    tools = build_diagnose_tools(conn, Lineage(), build_retriever())
+    tools = build_diagnose_tools(conn, Lineage(), build_retriever(), tracer=adapter.tracer)
 
     # HITL 持久化：审批暂停/恢复的状态落盘 SQLite，进程重启不丢（生产可换 Postgres）
     Path(settings.checkpoint_path).parent.mkdir(parents=True, exist_ok=True)
@@ -51,7 +51,7 @@ def build_runtime(settings: Settings | None = None) -> PatrolRuntime:
         make_inspect_node(conn, adapter),
         make_diagnose_node(adapter, tools),
         make_remediate_node(adapter, conn),
-        make_approve_node(),
+        make_approve_node(tracer=adapter.tracer),
         make_report_node(adapter),
         checkpointer=checkpointer,
     )

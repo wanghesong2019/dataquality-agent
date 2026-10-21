@@ -49,6 +49,7 @@ import json
 import re
 
 from dataquality_agent.models import CriticVerdict, Remediation
+from dataquality_agent.observability.tracing import trace_step
 from dataquality_agent.prompts import (
     SUBMIT_CRITIQUE_SCHEMA,
     SUBMIT_REMEDIATION_SCHEMA,
@@ -154,7 +155,9 @@ def make_remediate_node(model, conn, max_rounds: int = 3):
     超 max_rounds 仍不合格则强制 high 交人工（fail-safe）。
     """
     whitelist = {t[0] for t in conn.execute("SHOW TABLES").fetchall()}
+    tracer = getattr(model, "tracer", None)
 
+    @trace_step(tracer, "node:remediate")
     def remediate(state):
         remediations = [
             _remediate_one(a, d, model, whitelist, max_rounds)

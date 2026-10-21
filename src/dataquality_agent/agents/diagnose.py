@@ -75,15 +75,24 @@ submit_remediation（remediate.py:133），但它是 Executor+Critic 修订循�
 import json
 
 from dataquality_agent.models import Anomaly, Diagnosis
+from dataquality_agent.observability.tracing import trace_step
 from dataquality_agent.prompts import DIAGNOSE_SYSTEM_PROMPT, SUBMIT_DIAGNOSIS_SCHEMA, build_diagnose_prompt
 
 
-def _run_tool(tool, args: dict) -> str:
-    """执行一个工具调用，异常也返回字符串（不打断循环）。"""
-    try:
-        return str(tool.func(args))
-    except Exception as e:
-        return f"tool error: {e}"
+def _run_tool(tool, args: dict, tracer=None) -> str:
+    """执行一个工具调用，异常也返回字符串（不打断循环）；有 tracer 时埋一个 tool span。"""
+    if tracer is None:
+        try:
+            return str(tool.func(args))
+        except Exception as e:
+            return f"tool error: {e}"
+    with tracer.span(f"tool:{tool.name}", input=str(args)) as span:
+        try:
+            result = str(tool.func(args))
+        except Exception as e:
+            result = f"tool error: {e}"
+        span.output = result
+        return result
 
 
 def _matched_case_ids(tools: list) -> list[str]:
@@ -101,6 +110,7 @@ def _diagnose_one(anomaly: Anomaly, model, tools: list, max_steps: int) -> Diagn
     ]
     tool_schemas = [t.to_openai_schema() for t in tools] + [SUBMIT_DIAGNOSIS_SCHEMA]
     evidence_chain: list[str] = []
+    tracer = getattr(model, "tracer", None)
     # 每次归因前清空 cases 命中缓存（tools 跨 anomaly 复用，避免上一个 anomaly 的命中串到这一个）
     _matched_case_ids(tools).clear()
 
@@ -125,7 +135,7 @@ def _diagnose_one(anomaly: Anomaly, model, tools: list, max_steps: int) -> Diagn
                 try:
                     # evidence_chain 以「实际工具调用历史」为准：丢弃模型自述的 evidence_chain（否则
                     # 重复传关键字会抛 TypeError 被误降级成「未知」）。matched_cases 同理，以 cases 工具真实命中为准。
-                    args.pop("evidence_chain", None)
+                    args.pop("evidence_chain", None) # args存储了LLM在调用submit_diagnosis这个伪工具时自行生成并传入的所有参数
                     args.pop("matched_cases", None)
                     return Diagnosis(**args, evidence_chain=evidence_chain,
                                      matched_cases=list(_matched_case_ids(tools)))
@@ -133,7 +143,7 @@ def _diagnose_one(anomaly: Anomaly, model, tools: list, max_steps: int) -> Diagn
                     return Diagnosis(root_cause_category="未知", confidence=0.0, evidence_chain=evidence_chain,
                                      matched_cases=list(_matched_case_ids(tools)))
             tool = next((t for t in tools if t.name == name), None)
-            result = f"unknown tool: {name}" if tool is None else _run_tool(tool, args)
+            result = f"unknown tool: {name}" if tool is None else _run_tool(tool, args, tracer)
             evidence_chain.append(f"{name}({args}) -> {result}")
             messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": result})
     # 超过 max_steps 仍不收敛 → 降级 unknown（防无限循环）
@@ -143,6 +153,9 @@ def _diagnose_one(anomaly: Anomaly, model, tools: list, max_steps: int) -> Diagn
 
 def make_diagnose_node(model, tools: list, max_steps: int = 5):
     """返回归因节点函数。model/tools 通过闭包注入（model 需有 .chat；tools 为 Tool 列表）。"""
+    tracer = getattr(model, "tracer", None)
+
+    @trace_step(tracer, "node:diagnose")
     def diagnose(state):
         diagnoses = [_diagnose_one(a, model, tools, max_steps) for a in state.get("anomalies", [])]
         return {"diagnoses": diagnoses}
