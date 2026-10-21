@@ -375,7 +375,7 @@
 1. ~~**Token 计数换成真实值**~~ ✅ **已完成**（`llm.py` 读 `usage.total_tokens`，101 tests passed，已提交 `8c35e48`）。
 2. ~~**LLM-as-Judge 校准闭环**~~ ✅ **已完成**（`scripts/run_judge_calibration.py` 6 条标注集：一致率 16.67%→44.44% exact / 77.78% ±1，详见 §8）。
 3. ~~**HITL 换持久化 checkpointer**~~ ✅ **已完成**（`api/wiring.py` 换 `SqliteSaver` + `config.py` 加 `checkpoint_path` + `pyproject.toml` 加 `langgraph-checkpoint-sqlite`，101 tests passed）。
-4. **matched_cases 像 evidence_chain 一样回填**（`agents/diagnose.py`）：堵住"没查案例却谎称命中"的洞，把"证据幻觉"这个故事讲圆满。
+4. ~~**matched_cases 像 evidence_chain 一样回填**~~ ✅ **已完成**（`agents/diagnose.py` 的 `_matched_case_ids` 回填真实命中 ID + `tooling.py` 的 `cases_func` 累积，已提交 `c8aa650`）。
 
 ### 🟡 P1 —— ✅ 已完成（2026-10-19）
 
@@ -397,6 +397,37 @@
 
 ---
 
+## 12. 质量工程进阶（可观测 / 可评测 / 可调试 / 可进化）
+
+> 依据 `docs/2026Agent会干活还不够-2026年正进入可观察可评测可进化时代.md`：Agent 工程正从"能力工程"走向"质量工程"，四关键词——可观测 / 可评测 / 可调试 / 可进化。
+
+### 现状判定
+
+| 关键词 | 本项目现状 | 判定 |
+|---|---|---|
+| 可观测 | `Tracer` 只记 LLM 调用，缺步骤级 Trace（tool/检索/节点未埋 span） | 🟡 半 |
+| 可评测 | Outcome(F1/归因/整改/端到端) + Judge 校准(44%/78%) + RAG(Recall@K/MRR) | 🟢 较强 |
+| 可调试 | 有 `evidence_chain`（真实工具历史），缺 Failure Taxonomy | 🟡 半 |
+| 可进化 | 缺 Data Flywheel（一次性 eval，非闭环） | 🔴 缺 |
+
+### 待补清单（P1 → P2 → P3）
+
+- **P1（材料最现成、面试最加分）**：
+  1. **Trajectory Evaluation**——用已有的 `evidence_chain` 评"过程对不对"（tool 选择/参数是否正确、是否先 schema 再写 SQL、有无冗余 loop）。
+  2. **Failure Taxonomy**——失败按"检测/归因/整改/审批"阶段分型统计，能回答"哪一步最常挂"。
+  3. **步骤级 Trace**——给 tool 调用、检索、各节点（inspect/diagnose/remediate/approve）也埋 span，凑成 Trace 树。
+- **P2**：
+  4. **Safety Evaluation**——prompt injection / 权限越界 / 危险操作的测试用例（不止 SafeSQL 机制，要有评测）。
+  5. **Regression 进 CI**——benchmark 集 + eval + 对比 baseline 的回归脚本。
+- **P3**：
+  6. **Data Flywheel 完整闭环**——低分 case → 失败挖掘 → 人工复核 → 回归集 → 优化 → 离线 eval → A/B → 上线。
+
+> **简历定位**：能写，但突出真有的（ground-truth 评测、复检口径、Judge 校准、只读护栏）；别把"可进化"吹满——补完 P1 三块后才能理直气壮说"质量工程"。
+
+**来源**：用户提供的 2026 Agent 质量工程文档 + 本项目对照分析。
+
+---
+
 ## 附：一句话速答卡片（面试前 30 分钟过一遍）
 
 - **为什么 LangGraph**：状态机精确控流程 + checkpointer 支撑 HITL + state 做多 Agent 通信总线。
@@ -406,4 +437,4 @@
 - **安全**：SafeSQL 只读白名单，工具层断掉 DELETE。
 - **评估**：ground-truth 对齐 + 复检口径 + 可逆/丢失分型；LLM-as-Judge 配人工校准。
 - **数字**：F1=1.0 / 归因 0.75 / 整改 0.50（可逆 1.0 · 丢失 0.0）/ 端到端 0.50 / ~39s / ~78 万 token（真实 usage 计数）。
-- **诚实边界**：L2 暂缓、RAG 无 rerank——每个都能变成"我清楚这里为什么这样做、下一步怎么补"的加分叙事。
+- **诚实边界**：数据丢失异常整改 0.0、血缘硬编码、案例库 4 条 demo——每个都能变成"我清楚这里为什么这样做、下一步怎么补"的加分叙事。
