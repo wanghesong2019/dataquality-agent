@@ -431,7 +431,7 @@
 - **P1（材料最现成、面试最加分）**：
   1. ~~**Trajectory Evaluation**~~ ✅ **已完成**：`eval/trajectory.py` 用 `evidence_chain` 规则化评过程（无冗余重复调用 / 用 SQL 前先查 schema / 证据 ≥2 工具），接入 EvalReport、`run_eval.py` 输出轨迹质量，129 tests 全绿。
   2. ~~**Failure Taxonomy**~~ ✅ **已完成**：`eval/metrics.py` 的 `classify_failures` 把端到端失败按「漏检 / 归因错 / 整改失败 / 成功」四桶分型，`run_eval.py` 输出失败分型，134 tests 全绿。
-  3. ~~**步骤级 Trace**~~ ✅ **已完成**：`Span.parent` + ContextVar 自动父挂，节点/LLM/工具/检索都埋 span（node:*/tool:*/retrieve/llm），`render_tree`/`summary_by_name` 定位最慢一步，140 tests 全绿。
+  3. ~~**步骤级 Trace**~~ ✅ **已完成**：`Span.parent` + ContextVar 自动父挂，节点/LLM/工具/检索都埋 span（node:*/tool:*/retrieve/llm），`render_tree`/`summary_by_name` 定位最慢一步，140 tests 全绿。**代码出处**：核心 `observability/tracing.py`（Span.parent/children + ContextVar + `span()` 上下文 + `trace_step` 装饰器 + render_tree/summary_by_name/root_duration）；埋点 `agents/{diagnose,tooling,inspect,remediate,report,hitl}.py` + `llm.py`；装配 `api/wiring.py` + `scripts/run_eval.py`（传 tracer + root_duration）；测试 `tests/test_trace_tree.py`。
 - **P2**：
   4. **Safety Evaluation**——prompt injection / 权限越界 / 危险操作的测试用例（不止 SafeSQL 机制，要有评测）。
   5. **Regression 进 CI**——benchmark 集 + eval + 对比 baseline 的回归脚本。

@@ -53,7 +53,36 @@ def _parse_tool_calls(evidence_chain: list[str]) -> list[tuple[str, str]]:
 
 
 def evaluate_trajectory(evidence_chain: list[str]) -> TrajectoryVerdict:
-    """规则化评估一条归因轨迹：无冗余 / schema 优先 / 证据充分。"""
+    """规则化评估一条归因轨迹：无冗余 / schema 优先 / 证据充分（返回 TrajectoryVerdict）。
+
+    重难点一：`schema_before_sql` 是三态（bool | None），不是两态
+    ----------------------------------------------------------------
+    「写 SQL 前先查 schema」这条规则有适用前提——轨迹里用了 sql。所以分三态：
+    - None = 没用 sql，规则不适用（默认值，靠下方 `if "sql" in names` 守卫）；
+    - True = 用了 sql 且 schema 在 sql 之前（顺序对）；
+    - False = 用了 sql 但没先查 schema（顺序错）。
+    判断先后用 `names.index()` 取「第一次出现」的位置：只需比第一次调 schema 是否早于第一次
+    调 sql。schema 可能压根没调过，`index` 找不到会抛 ValueError，所以用三元表达式兜底成 -1
+    （-1 是「不存在」的哨兵，下方 `first_schema != -1` 判的就是它）。
+
+    举例（names = 按调用顺序的工具名）：
+    - `["schema","lineage","sql","cases"]` → first_schema=0 < first_sql=2 → **True**（先 schema 后 sql）
+    - `["sql","lineage"]` → 没查 schema，first_schema=-1 → `-1 != -1` 为 False → **False**（没先查 schema）
+    - `["sql","schema"]` → first_schema=1 > first_sql=0 → `1 < 0` 为 False → **False**（顺序反了）
+    - `["schema","lineage","cases"]` → 没用 sql → **None**（规则不适用）
+
+    重难点二：`passed = not reasons` 是「扣分列表」模式
+    -------------------------------------------------
+    reasons 收集所有违反的硬规则（冗余重复调用 / 用 sql 前没查 schema），利用 Python 空列表
+    falsy 的特性：reasons 空 → passed=True，非空 → passed=False（等价 len(reasons)==0）。
+    `schema_before_sql is False` 用 `is False` 而非 `if schema_before_sql`，是为了显式区分
+    「违反(False)」和「不适用(None)」——只有违反才扣分。reasons 一石二鸟：既决定 passed，
+    又作为 TrajectoryVerdict.reasons 返回，让「为什么不通过」可解释。
+
+    设计哲学：过程评测只做可枚举的硬规则（确定性、0 LLM），且 fail-closed——任一硬规则违反
+    就不通过（评测要严格，不打宽松分）。「证据充分」（unique >= 2）只作为报告项，不参与硬
+    判定——不同异常复杂度不同，不能一刀切。
+    """
     calls = _parse_tool_calls(evidence_chain)
     names = [n for n, _ in calls]
     total = len(calls)
