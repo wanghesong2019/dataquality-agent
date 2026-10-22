@@ -64,23 +64,27 @@ def main() -> None:
     # 3) 检测
     detection_report = run_detection(eval_conn, current_date=current_date, expected_schema=expected_schema)
     detected_before = detection_report.anomalies
+    # always-on 跨表异常（真实 Olist 自带的 380/609/8556）没有注入 ground-truth，只参与 baseline
+    # 扣除、不进归因/整改循环——否则模型会对着它们幻觉出不存在列的 SQL（如 payment_total）。
+    inj_keys = {(i.type, i.table) for i in injected}
+    diagnose_targets = [a for a in detected_before if (a.type, a.table) in inj_keys]
 
-    # 4) 归因 + 整改（DeepSeek function calling）
+    # 4) 归因 + 整改（DeepSeek function calling）——只处理注入目标
     tracer = Tracer()
-    adapter = LLMAdapter(DeepSeekClient(), tracer=tracer)
+    adapter = LLMAdapter(DeepSeekClient(temperature=0), tracer=tracer)
     tools = build_diagnose_tools(eval_conn, Lineage(), build_retriever(), tracer=tracer)
-    diagnoses = make_diagnose_node(adapter, tools)({"anomalies": detected_before})["diagnoses"]
-    remediations = make_remediate_node(adapter)(
-        {"anomalies": detected_before, "diagnoses": diagnoses})["remediations"]
+    diagnoses = make_diagnose_node(adapter, tools)({"anomalies": diagnose_targets})["diagnoses"]
+    remediations = make_remediate_node(adapter, eval_conn)(
+        {"anomalies": diagnose_targets, "diagnoses": diagnoses})["remediations"]
 
     # 5) 复检（应用 fix_sql → 重跑检测）
     detected_after = remediate_and_recheck(eval_conn, remediations, current_date, expected_schema)
 
     # 6) 组装报告 + 分型
-    report = run_eval(injected, detected_before, diagnoses, detected_after,
+    report = run_eval(injected, diagnose_targets, diagnoses, detected_after,
                       detection_report.stats, adapter.cost_ledger, llm_seconds=tracer.root_duration(),
-                      baseline=baseline)
-    by_rev = remediation_success_by_reversibility(detected_before, detected_after, injected)
+                      baseline=baseline, detected_all=detected_before)
+    by_rev = remediation_success_by_reversibility(diagnose_targets, detected_after, injected)
 
     print("=" * 64)
     print(f"检测 P/R/F1：P={report.detection.precision:.3f} R={report.detection.recall:.3f} F1={report.detection.f1:.3f}")

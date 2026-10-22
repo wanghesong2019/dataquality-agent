@@ -30,7 +30,8 @@ def build_remediate_prompt(anomaly, diagnosis) -> str:
         f"根因：{diagnosis.root_cause_category}（置信度 {diagnosis.confidence}）。"
         "请调用 submit_remediation 提交修复方案。"
         "action_type 与风险无关：只要能用 SQL 修复（去重、修正负值、回填空值等），"
-        "就用 fix_sql 并给出纯 SQL（不要 -- 注释、不要解释文字，只要能直接执行的 SQL 语句，表名/列名用上面给到的）；"
+        "就用 fix_sql 并给出纯 SQL（不要 -- 注释、不要解释文字、不要 ``` 代码块，只要能直接执行的 SQL 语句，表名/列名用上面给到的）；"
+        "对真值已丢失的脏数据（负价格、空值），用 best-effort 修复即可（如 price=ABS(price) 或置 0/NULL），不要因真值不可知就改开 ticket；"
         "只有确实无法用 SQL 修复（上游任务需重跑、需人工判断）才用 ticket。"
         "risk_level 单独判定：涉及 DELETE/UPDATE 生产表、金额字段、权限变更 → high（高危只影响是否审批，仍要给 fix_sql）；"
         "只读建议 → low；其余 → medium。"
@@ -57,7 +58,8 @@ def build_critic_prompt(anomaly, diagnosis, candidate: Remediation) -> str:
         f"候选方案：action_type={candidate.action_type}, risk_level={candidate.risk_level}, "
         f"sql_or_suggestion={candidate.sql_or_suggestion}。"
         "请调用 submit_critique 评审。重点：① action_type 归类是否对（该 fix_sql 却开 ticket / 反之）；"
-        "② sql_or_suggestion 是否真能修掉这个根因、建议是否跑偏或空/占位；"
+        "② sql_or_suggestion 能否消除该异常（对真值已丢失的脏数据如负价格/空值，best-effort 修复如 ABS/置默认值即可，"
+        "不要求恢复不可知的真值；只查 SQL 是否可执行、列名/表名是否存在、是否真能消除异常且不引入新错误）；"
         "③ risk_level 判得准不准（金额字段、权限变更、生产表写操作应判 high）。"
     )
 

@@ -64,15 +64,18 @@ def remediation_success_by_reversibility(detected_before, detected_after, inject
 
 
 def run_eval(injected, detected_before, diagnoses, detected_after, stats, cost_ledger,
-             llm_seconds: float = 0.0, baseline=None) -> EvalReport:
+             llm_seconds: float = 0.0, baseline=None, detected_all=None) -> EvalReport:
     """组装 EvalReport：把各阶段输出喂给 metrics 函数，得到面试可报的量化数字。
 
     llm_seconds = 归因/整改等 LLM 调用耗时（检测层耗时在 stats 里，两者相加 = 全流程耗时）。
     baseline = 干净基线异常（真实数据自带问题），透传给检测指标从误报里扣除。
+    detected_all = 全量检测结果（含 always-on 基线异常）用于检测指标；缺省 = detected_before。
+    detected_before = 只含注入目标的检测结果（与 diagnoses 等长，用于归因/整改对齐）。
     """
+    det_all = detected_all if detected_all is not None else detected_before
     return EvalReport(
-        detection=evaluate_detection(detected_before, injected, baseline),
-        detection_by_type=evaluate_detection_by_type(detected_before, injected, baseline),
+        detection=evaluate_detection(det_all, injected, baseline),
+        detection_by_type=evaluate_detection_by_type(det_all, injected, baseline),
         attribution_accuracy=attribution_accuracy(detected_before, diagnoses, injected),
         remediation_success=remediation_success(detected_before, detected_after, injected),
         end_to_end_success=end_to_end_success(detected_before, diagnoses, detected_after, injected),

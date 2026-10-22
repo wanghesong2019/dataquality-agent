@@ -67,8 +67,9 @@ class DeepSeekClient:
     chat(messages, tools, tool_choice, response_format) -> {content, tool_calls, usage}
     """
 
-    def __init__(self, api_key: str | None = None):
+    def __init__(self, api_key: str | None = None, temperature: float | None = None):
         self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY")
+        self.temperature = temperature  # None=用 API 默认；eval 传 0 保证可复现
 
     def chat(self, messages: list[dict], tools=None, tool_choice=None,
              response_format=None) -> dict:
@@ -77,6 +78,8 @@ class DeepSeekClient:
         if not self.api_key:
             raise RuntimeError("DEEPSEEK_API_KEY not set")
         payload = {"model": "deepseek-chat", "messages": messages}
+        if self.temperature is not None:
+            payload["temperature"] = self.temperature
         if tools:
             payload["tools"] = tools
         if tool_choice:
