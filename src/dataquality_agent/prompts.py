@@ -24,15 +24,20 @@ class Tool:
 # ---- 整改（remediate）----
 
 def build_remediate_prompt(anomaly, diagnosis) -> str:
-    """整改 prompt：给异常 + 根因 → 调 submit_remediation 提交方案。"""
+    """整改 prompt：给异常 + 根因 + 诊断证据链 → 调 submit_remediation 提交方案。
+
+    关键：把诊断阶段的 evidence_chain（含真实 schema 与查询结果）一并给整改，让它"看到"真实数据、
+    按真实列名写 SQL，而不是凭 type/table 盲猜（盲猜导致臆造列名或过度开 ticket）。
+    """
+    evidence = "\n".join(diagnosis.evidence_chain) if diagnosis.evidence_chain else "（无）"
     return (
         f"异常：type={anomaly.type}, table={anomaly.table}, column={anomaly.column or '-'}。"
         f"根因：{diagnosis.root_cause_category}（置信度 {diagnosis.confidence}）。"
-        "请调用 submit_remediation 提交修复方案。"
-        "action_type 与风险无关：只要能用 SQL 修复（去重、修正负值、回填空值等），"
-        "就用 fix_sql 并给出纯 SQL（不要 -- 注释、不要解释文字、不要 ``` 代码块，只要能直接执行的 SQL 语句，表名/列名用上面给到的）；"
-        "对真值已丢失的脏数据（负价格、空值），用 best-effort 修复即可（如 price=ABS(price) 或置 0/NULL），不要因真值不可知就改开 ticket；"
-        "只有确实无法用 SQL 修复（上游任务需重跑、需人工判断）才用 ticket。"
+        f"诊断阶段收集的证据（含真实 schema 与查询结果，写 SQL 必须以这些列名/数据为准，不要臆造列名）：\n{evidence}\n"
+        "请调用 submit_remediation 提交修复方案。action_type 看异常类型、不看风险："
+        "① 值错了但可合理修正（duplicate 去重、value_range 负价格改成 ABS(price) 或 0）→ fix_sql，best-effort 即可，不要因真值不可知就开 ticket；"
+        "② 真值已丢失、SQL 无法无损恢复（orphan 上游删数据、null_rate 关键列被置空）→ ticket（需上游重跑/人工判断），不要用硬删/硬填糊弄；"
+        "fix_sql 给纯 SQL（不要 -- 注释、不要解释文字、不要 ``` 代码块，只要能直接执行的 SQL 语句，表名/列名用证据链里的真实列名；数据库是 DuckDB，去重/行定位用 rowid，不是 ctid）。"
         "risk_level 单独判定：涉及 DELETE/UPDATE 生产表、金额字段、权限变更 → high（高危只影响是否审批，仍要给 fix_sql）；"
         "只读建议 → low；其余 → medium。"
     )
@@ -81,6 +86,10 @@ DIAGNOSE_SYSTEM_PROMPT = (
     "① 先调用工具收集证据——schema 查表的列名与类型、lineage 查上游血缘、cases 查相似案例、sql 跑只读诊断"
     "（写 SQL 前务必先调 schema 确认列名，不要猜列名）；"
     "② 基于证据再调用 submit_diagnosis 提交根因结论。"
+    "根因归类参考：负值/重复键/必填列空值 → 脏数据注入；"
+    "子表外键在父表找不到（孤儿）→ 上游任务失败（上游删数据/未加载）；"
+    "下游表停更或水位线落后 → 上游数据延迟；"
+    "列被删/改类型 → schema变更。"
     "严禁跳过工具调查、在没有证据时提交「未知」或占位结论。"
 )
 
