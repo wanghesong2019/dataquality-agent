@@ -59,8 +59,39 @@ def test_supervisor_done_when_all_visited():
     assert result["route"] == "done"
 
 
+def _model_diagnosis():
+    class FakeModel:
+        def __init__(self):
+            self.tracer = None
+
+        def chat(self, messages, tools=None, tool_choice=None, response_format=None):
+            return {"content": "", "tool_calls": [
+                {"id": "1", "function": {"name": "submit_diagnosis",
+                                         "arguments": json.dumps({"root_cause_category": "脏数据注入", "confidence": 0.9})}}
+            ]}
+    return FakeModel()
+
+
+def test_aggregate_diagnose_node():
+    """聚合诊断节点：把 3 组 findings 收敛成 Diagnosis（证据链 = 3 组 finding）。"""
+    from dataquality_agent.agents.diagnose import make_aggregate_diagnose_node
+
+    node = make_aggregate_diagnose_node(_model_diagnosis())
+    state = {
+        "anomalies": [Anomaly(type="duplicate", table="orders")],
+        "lineage_findings": ["lineage(orders) -> []"],
+        "sql_findings": ["schema(orders) -> {order_id: VARCHAR}"],
+        "cases_findings": ["cases(重复) -> [dup_orders]"],
+    }
+    result = node(state)
+    assert len(result["diagnoses"]) == 1
+    assert result["diagnoses"][0].root_cause_category == "脏数据注入"
+    assert len(result["diagnoses"][0].evidence_chain) == 3
+
+
 def test_supervisor_graph_runs_and_terminates():
-    """集成：build_supervisor_graph 循环能跑通并终止（fallback 分诊 lineage→sql→cases→done）。"""
+    """集成：完整 Supervisor 图跑通并终止（inspect→supervisor循环→diagnose→remediate→report）。"""
+    from dataquality_agent.agents.diagnose import make_aggregate_diagnose_node
     from dataquality_agent.agents.graph import build_supervisor_graph
 
     def inspect(state):
@@ -75,8 +106,23 @@ def test_supervisor_graph_runs_and_terminates():
     def cases(state):
         return {"cases_findings": ["cases(重复) -> [dup_orders]"]}
 
-    graph = build_supervisor_graph(inspect, make_supervisor_node(_model_invalid()), lineage, sql, cases)
+    def remediate(state):
+        return {"remediations": []}  # 无高危 → 走 report
+
+    def approve(state):
+        return {"approvals": []}
+
+    def report(state):
+        return {"report": "ok"}
+
+    graph = build_supervisor_graph(
+        inspect, make_supervisor_node(_model_invalid()), lineage, sql, cases,
+        make_aggregate_diagnose_node(_model_diagnosis()),
+        remediate, approve, report,
+    )
     result = graph.invoke({"run_id": "r1"})
     assert result["route"] == "done"
     assert result["route_history"] == ["lineage", "sql", "cases"]
     assert result["lineage_findings"] and result["sql_findings"] and result["cases_findings"]
+    assert result["diagnoses"]
+    assert result["report"] == "ok"

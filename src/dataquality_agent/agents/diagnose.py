@@ -76,7 +76,12 @@ import json
 
 from dataquality_agent.models import Anomaly, Diagnosis
 from dataquality_agent.observability.tracing import trace_step
-from dataquality_agent.prompts import DIAGNOSE_SYSTEM_PROMPT, SUBMIT_DIAGNOSIS_SCHEMA, build_diagnose_prompt
+from dataquality_agent.prompts import (
+    DIAGNOSE_SYSTEM_PROMPT,
+    SUBMIT_DIAGNOSIS_SCHEMA,
+    build_aggregate_diagnose_prompt,
+    build_diagnose_prompt,
+)
 
 
 def _run_tool(tool, args: dict, tracer=None) -> str:
@@ -158,5 +163,51 @@ def make_diagnose_node(model, tools: list, max_steps: int = 5):
     @trace_step(tracer, "node:diagnose")
     def diagnose(state):
         diagnoses = [_diagnose_one(a, model, tools, max_steps) for a in state.get("anomalies", [])]
+        return {"diagnoses": diagnoses}
+    return diagnose
+
+
+def _aggregate_one(anomaly: Anomaly, lineage: str, sql: str, cases: str, model) -> Diagnosis:
+    """聚合诊断：把 3 个专职 Agent 的 finding 拼成证据，调 submit_diagnosis 收敛成 Diagnosis。
+
+    证据已由专职 Agent 收集，这里不再跑工具循环，只做「证据 → 结论」这一步。
+    """
+    evidence = [e for e in (lineage, sql, cases) if e]
+    resp = model.chat(
+        [{"role": "user", "content": build_aggregate_diagnose_prompt(anomaly, evidence)}],
+        tools=[SUBMIT_DIAGNOSIS_SCHEMA],
+        tool_choice={"type": "function", "function": {"name": "submit_diagnosis"}},
+    )
+    for call in (resp or {}).get("tool_calls", []):
+        if call.get("function", {}).get("name") == "submit_diagnosis":
+            try:
+                args = json.loads(call["function"]["arguments"])
+                args.pop("evidence_chain", None)   # 丢弃自述，证据链以专职 Agent 的 finding 为准
+                args.pop("matched_cases", None)
+                return Diagnosis(**args, evidence_chain=evidence)
+            except Exception:
+                break
+    return Diagnosis(root_cause_category="未知", confidence=0.0, evidence_chain=evidence)
+
+
+def make_aggregate_diagnose_node(model):
+    """返回聚合诊断节点（§13 Supervisor 的 diagnose）：读 3 组 findings → Diagnosis。"""
+    tracer = getattr(model, "tracer", None)
+
+    @trace_step(tracer, "node:diagnose")
+    def diagnose(state):
+        anomalies = state.get("anomalies", [])
+        lineage = state.get("lineage_findings", [])
+        sql = state.get("sql_findings", [])
+        cases = state.get("cases_findings", [])
+        diagnoses = []
+        for i, a in enumerate(anomalies):
+            diagnoses.append(_aggregate_one(
+                a,
+                lineage[i] if i < len(lineage) else "",
+                sql[i] if i < len(sql) else "",
+                cases[i] if i < len(cases) else "",
+                model,
+            ))
         return {"diagnoses": diagnoses}
     return diagnose

@@ -34,10 +34,13 @@ def _route_supervisor(state) -> str:
     return state.get("route", "done")
 
 
-def build_supervisor_graph(inspect_fn, supervisor_fn, lineage_agent, sql_agent, cases_agent):
-    """构建 Supervisor 循环图（§13 Phase 2）：inspect → supervisor ↕{lineage,sql,cases} → done。
+def build_supervisor_graph(inspect_fn, supervisor_fn, lineage_agent, sql_agent, cases_agent,
+                           diagnose_fn, remediate_fn, approve_fn, report_fn, checkpointer=None):
+    """构建完整 Supervisor 图（§13）：inspect → supervisor ↕{lineage,sql,cases}
+    → diagnose(聚合 findings) → remediate → (approve | report) → report → END。
 
-    Phase 2 只接循环，done 先到 END；Phase 3 再接 diagnose 聚合 + remediate/approve/report。
+    与 build_graph（单图）的区别只有：单图 diagnose（1 个 ReAct 带 4 工具）被换成
+    supervisor 分诊 + 3 专职 Agent + diagnose 聚合。
     """
     g = StateGraph(AgentState)
     g.add_node("inspect", inspect_fn)
@@ -45,15 +48,23 @@ def build_supervisor_graph(inspect_fn, supervisor_fn, lineage_agent, sql_agent, 
     g.add_node("lineage", lineage_agent)
     g.add_node("sql", sql_agent)
     g.add_node("cases", cases_agent)
+    g.add_node("diagnose", diagnose_fn)
+    g.add_node("remediate", remediate_fn)
+    g.add_node("approve", approve_fn)
+    g.add_node("report", report_fn)
     g.set_entry_point("inspect")
     g.add_edge("inspect", "supervisor")
     g.add_conditional_edges("supervisor", _route_supervisor, {
         "lineage": "lineage",
         "sql": "sql",
         "cases": "cases",
-        "done": END,
+        "done": "diagnose",
     })
     g.add_edge("lineage", "supervisor")
     g.add_edge("sql", "supervisor")
     g.add_edge("cases", "supervisor")
-    return g.compile()
+    g.add_edge("diagnose", "remediate")
+    g.add_conditional_edges("remediate", _route, {"approve": "approve", "report": "report"})
+    g.add_edge("approve", "report")
+    g.add_edge("report", END)
+    return g.compile(checkpointer=checkpointer)

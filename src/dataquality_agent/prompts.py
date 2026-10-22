@@ -102,6 +102,19 @@ def build_diagnose_prompt(anomaly) -> str:
     )
 
 
+def build_aggregate_diagnose_prompt(anomaly, evidence: list[str]) -> str:
+    """聚合诊断 prompt（§13 Supervisor 的 diagnose 聚合节点）：给异常 + 专职 Agent 已收集的证据
+    → 调 submit_diagnosis 提交结论（证据已收集，不再调工具）。"""
+    evidence_text = "\n".join(evidence) if evidence else "（无）"
+    return (
+        f"异常：type={anomaly.type}, table={anomaly.table}, column={anomaly.column or '-'}。"
+        f"专职 Agent 已收集的证据：\n{evidence_text}\n"
+        "根因归类参考：负值/重复键/必填列空值 → 脏数据注入；子表外键在父表找不到（孤儿）→ 上游任务失败；"
+        "下游表停更或水位线落后 → 上游数据延迟；列被删/改类型 → schema变更。"
+        "请调用 submit_diagnosis 提交根因结论。"
+    )
+
+
 SUBMIT_DIAGNOSIS_SCHEMA = {
     "type": "function",
     "function": {
