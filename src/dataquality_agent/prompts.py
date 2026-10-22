@@ -138,6 +138,36 @@ def build_specialist_prompt(anomaly) -> str:
     )
 
 
+# ---- Supervisor 分诊（§13 Phase 2）----
+
+SUBMIT_ROUTE_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "submit_route",
+        "description": "决定下一步派哪个专职 Agent 继续查，或已查够就 done",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "route": {"type": "string", "enum": ["lineage", "sql", "cases", "done"]},
+            },
+            "required": ["route"],
+        },
+    },
+}
+
+
+def build_supervisor_prompt(anomalies, findings: dict, unvisited: list[str]) -> str:
+    """Supervisor 分诊 prompt：给异常 + 已收集 findings + 可派 Agent，决定下一步。"""
+    anomaly_desc = "; ".join(f"{a.type}/{a.table}" for a in anomalies)
+    finding_desc = "; ".join(f"{k}={v}" for k, v in findings.items() if v)
+    return (
+        f"异常清单：{anomaly_desc}。"
+        f"已收集证据：{finding_desc or '（无）'}。"
+        f"可派专职 Agent：{unvisited}（lineage=血缘归因、sql=SQL排查、cases=案例检索）。"
+        "决定下一步：若还需调查就派一个最合适的 Agent，否则 done。"
+    )
+
+
 # ---- 报告（report）----
 
 def build_report_prompt(anomaly_count: int, remediation_count: int) -> str:
