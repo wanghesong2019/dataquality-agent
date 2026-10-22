@@ -437,6 +437,7 @@
   5. **Regression 进 CI**——benchmark 集 + eval + 对比 baseline 的回归脚本。
 - **P3**：
   6. **Data Flywheel 完整闭环**——低分 case → 失败挖掘 → 人工复核 → 回归集 → 优化 → 离线 eval → A/B → 上线。
+     - **第一块可落地拼图：注入异常 → RAG 案例库回填（检索调优）**。跑 `run_eval.py` 时把 `InjectedAnomaly`（含 ground-truth 根因）+ `Diagnosis` + `Remediation` 三元组沉淀进 cases 库（一条一 chunk），案例库从「4 条 demo」变成「有真实标签的注入异常集」，`eval/retrieval.py` 的 Recall@K/MRR 有了真实分母，据此调 rerank/BM25。来源两类：注入异常（根因标签已知、最适合调优）+ 真实数据自带异常（380/609/8556，需 agent 自归因、用于扩充真实性）。
 
 > **简历定位**：能写，但突出真有的（ground-truth 评测、复检口径、Judge 校准、只读护栏）；别把"可进化"吹满——补完 P1 三块后才能理直气壮说"质量工程"。
 
