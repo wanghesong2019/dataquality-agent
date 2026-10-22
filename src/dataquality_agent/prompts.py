@@ -112,6 +112,32 @@ SUBMIT_DIAGNOSIS_SCHEMA = {
 }
 
 
+# ---- 专职调查 Agent（§13 Supervisor 的 3 个 specialist）----
+
+LINEAGE_SPECIALIST_PROMPT = (
+    "你是血缘归因专家。调 lineage 工具查异常表的上游血缘，回答「这张表的数据依赖哪些上游表」。"
+    "只做血缘追查，不跑 SQL、不检索案例。"
+)
+
+SQL_SPECIALIST_PROMPT = (
+    "你是 SQL 排查专家。先调 schema 确认列名与类型（不要猜列名），再调 sql 跑只读诊断查询，"
+    "取证异常的实际数据（有多少行、具体哪些值）。只做 SQL 取证，不查血缘、不检索案例。"
+)
+
+CASES_SPECIALIST_PROMPT = (
+    "你是案例检索专家。调 cases 工具在历史案例库检索与当前异常最相似的案例。"
+    "只做案例检索，不跑 SQL、不查血缘。"
+)
+
+
+def build_specialist_prompt(anomaly) -> str:
+    """专职 Agent 的 user prompt：给异常 → 调工具收集证据。"""
+    return (
+        f"异常：type={anomaly.type}, table={anomaly.table}, column={anomaly.column or '-'}。"
+        "请调用工具收集证据。"
+    )
+
+
 # ---- 报告（report）----
 
 def build_report_prompt(anomaly_count: int, remediation_count: int) -> str:
