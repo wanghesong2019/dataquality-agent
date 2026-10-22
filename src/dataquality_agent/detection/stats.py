@@ -41,57 +41,71 @@ def psi(actual: dict, expected: dict, epsilon: float = 1e-3) -> float:
     return score
 
 
-def _status_dist(conn, day=None) -> dict[str, int]:
-    """dwd_orders 的 order_status 计数分布。day 为 None 取全历史，否则只取某一天。"""
+def _cat_dist(conn, table: str, cat_col: str, date_col: str, day=None) -> dict[str, int]:
+    """某表某分类列在给定日期的计数分布。day 为 None 取全历史，否则只取那一天。"""
     if day is None:
         rows = conn.execute(
-            "SELECT order_status, COUNT(*) FROM dwd_orders GROUP BY order_status"
+            f"SELECT {cat_col}, COUNT(*) FROM {table} GROUP BY {cat_col}"
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT order_status, COUNT(*) FROM dwd_orders WHERE order_purchase_timestamp::DATE = ?::DATE GROUP BY order_status",
+            f"SELECT {cat_col}, COUNT(*) FROM {table} WHERE {date_col}::DATE = ?::DATE GROUP BY {cat_col}",
             [str(day)],
         ).fetchall()
     return {r[0]: r[1] for r in rows}
 
 
-def detect_volume(conn, threshold: float = 3.0, lookback: int = 7) -> list[Anomaly]:
-    """volume 点异常：最新一天订单量 vs 前 lookback 天基线（z-score）。"""
+def detect_volume(conn, threshold: float = 3.0, lookback: int = 7,
+                  metrics: tuple[str, ...] = ("orders",)) -> list[Anomaly]:
+    """volume 点异常：最新一天各指标 vs 前 lookback 天基线（z-score）。多基线：orders + gmv。"""
+    cols = ", ".join(metrics)
     rows = conn.execute(
-        "SELECT orders FROM daily_metrics ORDER BY order_date DESC LIMIT ?", [lookback + 1]
+        f"SELECT {cols} FROM daily_metrics ORDER BY order_date DESC LIMIT ?", [lookback + 1]
     ).fetchall()
     if len(rows) < 3:
         return []
-    current = rows[0][0]
-    baseline = [r[0] for r in rows[1:]]
-    if zscore_detect(current, baseline, threshold):
-        return [Anomaly(
-            type="volume", table="daily_metrics",
-            evidence=f"最新日订单量 {current} 偏离基线（|z| 超 {threshold}）",
-            metric_value=current, expected_range=f"|z| <= {threshold}",
-        )]
-    return []
+    anomalies: list[Anomaly] = []
+    for idx, metric in enumerate(metrics):
+        current = rows[0][idx]
+        baseline = [r[idx] for r in rows[1:]]
+        if zscore_detect(current, baseline, threshold):
+            anomalies.append(Anomaly(
+                type="volume", table="daily_metrics", column=metric,
+                evidence=f"最新日 {metric}={current} 偏离基线（|z| 超 {threshold}）",
+                metric_value=current, expected_range=f"|z| <= {threshold}",
+            ))
+    return anomalies
 
 
-def detect_distribution(conn, threshold: float = 0.10, min_count: int = 10) -> list[Anomaly]:
-    """distribution 漂移：最新一天 order_status 分布 vs 全历史基线（PSI）。"""
-    latest = conn.execute(
-        "SELECT MAX(order_purchase_timestamp::DATE) FROM dwd_orders"
-    ).fetchone()[0]
+def _dist_drift(conn, table: str, cat_col: str, date_col: str,
+                threshold: float, min_count: int) -> list[Anomaly]:
+    """某分类列「最新一天分布 vs 全历史基线」的 PSI 漂移检测（多基线共用的底层）。"""
+    latest = conn.execute(f"SELECT MAX({date_col}::DATE) FROM {table}").fetchone()[0]
     if latest is None:
         return []
-    cur = _status_dist(conn, latest)
+    cur = _cat_dist(conn, table, cat_col, date_col, latest)
     if sum(cur.values()) < min_count:
         return []  # 最新一天样本太少，无法判断分布漂移（防小样本误报）
-    exp = _status_dist(conn, None)
+    exp = _cat_dist(conn, table, cat_col, date_col, None)
     score = psi(cur, exp)
     if score > threshold:
         return [Anomaly(
-            type="distribution", table="orders", column="order_status",
-            evidence=f"order_status 分布漂移 PSI={score:.3f} 超阈值 {threshold}",
+            type="distribution", table=table, column=cat_col,
+            evidence=f"{cat_col} 分布漂移 PSI={score:.3f} 超阈值 {threshold}",
             metric_value=round(score, 4), expected_range=f"PSI <= {threshold}",
         )]
     return []
+
+
+def detect_distribution(conn, threshold: float = 0.10, min_count: int = 10,
+                        dimensions: tuple[tuple[str, str, str], ...] = (
+                            ("dwd_orders", "order_status", "order_purchase_timestamp"),
+                        )) -> list[Anomaly]:
+    """distribution 漂移：多基线（order_status + review_score）。每个维度 = (table, cat_col, date_col)。"""
+    anomalies: list[Anomaly] = []
+    for table, cat_col, date_col in dimensions:
+        anomalies += _dist_drift(conn, table, cat_col, date_col, threshold, min_count)
+    return anomalies
 
 
 def check_freshness(dates: list[str], current_date: str, max_gap_days: int = 1) -> bool:

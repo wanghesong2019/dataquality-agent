@@ -98,3 +98,44 @@ def _dist_conn():
 def test_detect_distribution_shift():
     assert detect_distribution(_dist_conn(), threshold=0.10) != []  # 明显漂移应被 PSI 检出
     assert detect_distribution(_dist_conn(), threshold=100.0) == []  # 阈值极高，不报
+
+
+def test_detect_volume_multi_metric():
+    """volume 多基线：orders + gmv 两个指标同时 spike，都应被 z-score 检出。"""
+    import duckdb
+    conn = duckdb.connect()
+    conn.execute("CREATE TABLE daily_metrics (order_date DATE, orders INTEGER, gmv DOUBLE)")
+    for i in range(7):
+        conn.execute("INSERT INTO daily_metrics VALUES (?, ?, ?)",
+                     [f"2018-01-0{i + 1}", 100 + i * 5, 1000.0 + i * 50])
+    conn.execute("INSERT INTO daily_metrics VALUES ('2018-01-08', 300, 3000.0)")  # 双指标同 spike
+    anomalies = detect_volume(conn, threshold=3.0, metrics=("orders", "gmv"))
+    assert {a.column for a in anomalies} == {"orders", "gmv"}
+
+
+def test_detect_distribution_multi_dim():
+    """distribution 多基线：order_status + review_score 两个维度同时漂移，都应被 PSI 检出。"""
+    import duckdb
+    conn = duckdb.connect()
+    conn.execute("CREATE TABLE dwd_orders (order_purchase_timestamp TIMESTAMP, order_status VARCHAR)")
+    conn.execute("CREATE TABLE dwd_reviews (review_creation_date TIMESTAMP, review_score INTEGER)")
+    # dwd_orders：最后一天全 canceled（漂移）
+    for _ in range(90):
+        conn.execute("INSERT INTO dwd_orders VALUES ('2018-01-01 10:00:00', 'delivered')")
+    for _ in range(10):
+        conn.execute("INSERT INTO dwd_orders VALUES ('2018-01-01 10:00:00', 'canceled')")
+    for _ in range(100):
+        conn.execute("INSERT INTO dwd_orders VALUES ('2018-01-02 10:00:00', 'canceled')")
+    # dwd_reviews：最后一天全 1 分（漂移）
+    for _ in range(90):
+        conn.execute("INSERT INTO dwd_reviews VALUES ('2018-01-01 10:00:00', 5)")
+    for _ in range(10):
+        conn.execute("INSERT INTO dwd_reviews VALUES ('2018-01-01 10:00:00', 1)")
+    for _ in range(100):
+        conn.execute("INSERT INTO dwd_reviews VALUES ('2018-01-02 10:00:00', 1)")
+    dims = (("dwd_orders", "order_status", "order_purchase_timestamp"),
+            ("dwd_reviews", "review_score", "review_creation_date"))
+    anomalies = detect_distribution(conn, threshold=0.10, dimensions=dims)
+    assert {(a.table, a.column) for a in anomalies} == {
+        ("dwd_orders", "order_status"), ("dwd_reviews", "review_score"),
+    }

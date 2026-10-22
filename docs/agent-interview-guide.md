@@ -369,12 +369,12 @@
 **分层与表分类**：
 - ODS：9 张原始 CSV 落库（`warehouse.py:9-19`）。
 - DWD：事实表 = dwd_orders / dwd_order_items / dwd_payments / dwd_reviews（交易流水）；维度表 = dwd_products / dwd_sellers / dwd_customers / dwd_geolocation（业务实体）。
-- DWS：daily_metrics（日粒度指标，L1 volume/distribution 的对比基线）。
+- DWS：daily_metrics（日粒度，L1 volume 基线）+ seller_metrics / category_metrics / payment_summary（seller/category/payment 横截面聚合，补 DWS 多基线）。
 
 **三个「有意不做」的取舍**（面试最值钱）：
 1. **不建统一事实宽表**：星型模型的宽表是给分析 join 用的；检测要的是「各表独立、靠 FK 列逐对校验」，所以 DWD 各表仅通过 order_id/product_id/seller_id/customer_id 逻辑关联，不 flatten。
 2. **不建真实 FK 约束**：DuckDB `CREATE TABLE AS` 不加约束，「关联」只是列值能对上；引用完整性交给检测层 `check_orphan` 逐对校验兜底——「数据不强制、检测来补缺」。
-3. **DWS 读 ODS 不读 DWD**：daily_metrics 直接 JOIN ODS 的 orders/order_items，因为这两个表的数值列在 ODS 已是干净 DOUBLE、且只按日期聚合；products 重量这种需要 TRY_CAST 的列才走 DWD。
+3. **DWS 读 ODS 还是 DWD 看列要不要 TRY_CAST**：daily_metrics 直接 JOIN ODS 的 orders/order_items（这两个表的数值列在 ODS 已是干净 DOUBLE、只按日期聚合）；seller_metrics 的评分、payment_summary 的金额/分期是 TRY_CAST 列 → 读 DWD，category_metrics 的品类名在 ODS 已是干净字符串 → 读 ODS。规则一句话：需要 TRY_CAST 的列才走 DWD。
 
 **translation 表为何「加载但不用」**：product_category_translation 在 ODS 被加载（`warehouse.py:18`），但没建 DWD、也没被任何 SQL 引用——因为当前检测不用品类语义：L1 distribution 只查 order_status、L2 语义只采样 dwd_orders/dwd_order_items。需要英文品类名时再补。
 
@@ -402,7 +402,7 @@
 ### 🟢 P2 —— 加分故事，不是必问
 
 8. **数据丢失异常 0.0 的叙事**：不是要去解决它，而是把它当成"SQL 非万能、需上游重跑"的踩坑素材讲（已有 `REVERSIBLE_TYPES` 分型背书）。
-9. **血缘从数仓元数据自动采集**（`data/lineage.py:4`）：现在硬编码，讲得出"为什么 demo 硬编码、生产该接元数据"即可。
+9. **血缘从数仓元数据自动采集**（`data/lineage.py:13`）：现在硬编码，讲得出"为什么 demo 硬编码、生产该接元数据"即可。
 10. **Langfuse usage 拆分 input/output**（`observability/tracing.py:77`）：锦上添花。
 
 ### 一句话结论
@@ -488,10 +488,10 @@
 |---|---|---|---|
 | 1 | ~~确认 9 张 CSV 是否齐全~~ ✅ **已确认**：9 张全齐，在 `/data/home/hermes/olist/`（2026-10-12 下载，共 ~123MB）；此前"搜不到"是 kaiChen 读不了 hermes 家目录（750）所致，非数据丢失 | — | 前置依赖，已通过 |
 | 2 | ~~DWD 补全~~ ✅ **已完成**：6 张新 DWD（payments/reviews/products/sellers/customers/geolocation）用 TRY_CAST 类型规范化（空串→NULL）；真实 Olist 验证 8 张 DWD 全建（orders 99441 / items 112650 / payments 103886 / reviews 99224 / products 32951 / sellers 3095 / customers 99441 / geolocation 1000163），115 tests 全绿 | `data/warehouse.py` | "9 表星型模型，事实表 + 维度表都做了类型规范化" |
-| 3 | DWS 补聚合：`seller_metrics`（GMV/单量/评分）、`category_metrics`（品类）、`payment_summary`（分期/支付方式） | `data/warehouse.py` | （目标，未做）volume/distribution 从单基线扩成多基线（现 volume 查 daily_metrics、distribution 查 dwd_orders） |
+| 3 | ~~DWS 补聚合~~ ✅ **已完成**：`seller_metrics`（GMV/单量/评分）、`category_metrics`（品类）、`payment_summary`（分期/支付方式）三张横截面聚合表；volume 从单指标(orders)扩成 orders+gmv、distribution 从单维(order_status)扩成 order_status+review_score，多基线落地，155 tests 全绿 | `data/warehouse.py` + `detection/stats.py` + `detection/runner.py` | "DWS 从一根独苗扩成 4 张聚合表，L1 volume/distribution 多基线" |
 | 4 | ~~跨表一致性检测~~ ✅ **已完成**：`check_amount_mismatch`/`check_state_conflict`/`check_zip_inconsistency` + `run_consistency_checks`，真实 Olist 检出 380 金额不一致 + 609 状态矛盾 + 8556 邮编矛盾；评测改 **baseline-aware**（真实问题从误报扣除，检测 F1 仍 1.0） | `detection/rules.py` + `eval/metrics.py` + `scripts/run_eval.py` | "检测在真实数据上抓到真实问题，评测口径诚实" |
 | 5 | ~~孤儿外键扩展~~ ✅ **已完成**：`check_orphan` 铺满 order_items→products/sellers、payments→orders、reviews→orders、orders→customers（真实 Olist 全 0，注入才触发）；orphan 注入改删叶子父表 products 避免爆炸半径 | `detection/rules.py` + `scripts/run_eval.py` | "FK 网全铺，注入口径与 ground-truth 对齐" |
-| 6 | 血缘做实：让 `lineage.py` 的边对应真正 build 出来的表（别再"挂地图不打仗"） | `data/lineage.py` | （目标，未做）血缘和真实 DWD/DWS 对齐，可回答"这字段源头在哪" |
+| 6 | ~~血缘做实~~ ✅ **已完成**：`lineage.py` 分两类边——FK 依赖（归因溯源用，保留）+ 构建血缘（ODS→DWD→DWS，8 DWD + 4 DWS 边全对齐 warehouse.py）；`Lineage.upstream("seller_metrics")` 能答出源头 | `data/lineage.py` | "血缘和真实 DWD/DWS 对齐，可回答'这字段源头在哪'" |
 | 7 | ~~注入器扩展~~ ✅ **已完成**：`inject_amount_mismatch`/`inject_state_conflict`/`inject_zip_inconsistency` + ROOT_CAUSE_CATEGORY 对齐，123 tests 全绿。注：这三类是 **always-on**（真实数据基线就命中），注入 F1 平凡（=1.0），其「证明」靠真实基线（380/609/8556）而非注入 F1 | `data/injector.py` | "注入器覆盖全检测类型；always-on 检测靠真实基线证明" |
 
 **验证**：`pytest` 全绿 + `run_eval.py` 复跑，同步更新简历/文档里的数字（F1 / 归因 / 整改 / 端到端 / token）。

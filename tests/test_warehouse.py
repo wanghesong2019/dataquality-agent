@@ -39,6 +39,33 @@ def test_warehouse_build_all_dwd(mini_data):
     assert conn.execute("SELECT typeof(geolocation_lat) FROM dwd_geolocation LIMIT 1").fetchone()[0] == "DOUBLE"
 
 
+def test_warehouse_build_dws_aggregates(mini_data):
+    """§14 #3：seller/category/payment 三张 DWS 聚合表建好，口径正确（多基线）。"""
+    s = Settings(data_dir=str(mini_data), db_path=str(mini_data / "test.duckdb"))
+    w = Warehouse(s)
+    w.build()
+    conn = w.connect()
+
+    # seller_metrics：GMV/单量/评分（s1 两单均价 4.5，s2 一单 5.0）
+    sm = {r[0]: (r[1], r[2], r[3]) for r in conn.execute(
+        "SELECT seller_id, orders, gmv, avg_score FROM seller_metrics").fetchall()}
+    assert sm["s1"] == (2, 15.0, 4.5)
+    assert sm["s2"] == (1, 20.0, 5.0)
+
+    # category_metrics：品类 GMV/单量
+    cm = {r[0]: (r[1], r[2]) for r in conn.execute(
+        "SELECT product_category_name, orders, gmv FROM category_metrics").fetchall()}
+    assert cm["moveis_decoracao"] == (2, 15.0)
+    assert cm["utilidades_domesticas"] == (1, 20.0)
+
+    # payment_summary：分期/支付方式（boleto 3 期，其余 1 期）
+    ps = {r[0]: (r[1], r[2], r[3]) for r in conn.execute(
+        "SELECT payment_type, payments, total_value, avg_installments FROM payment_summary").fetchall()}
+    assert ps["credit_card"] == (1, 15.0, 1.0)
+    assert ps["voucher"] == (1, 20.0, 1.0)
+    assert ps["boleto"] == (1, 6.0, 3.0)
+
+
 def test_clone_warehouse(mini_warehouse):
     dst = str(Path(mini_warehouse.db_path).with_name("clone.duckdb"))
     clone_warehouse(mini_warehouse.db_path, dst)

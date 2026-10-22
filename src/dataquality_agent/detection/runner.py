@@ -76,11 +76,15 @@ def run_detection(conn: duckdb.DuckDBPyConnection,
     report.stats["l1_schema"] = round(time.time() - t0, 4)
 
     t0 = time.time()
-    report.anomalies += stats.detect_volume(conn, zscore_threshold)
+    report.anomalies += stats.detect_volume(conn, zscore_threshold, metrics=("orders", "gmv"))
     report.stats["l1_volume"] = round(time.time() - t0, 4)
 
     t0 = time.time()
-    report.anomalies += stats.detect_distribution(conn, psi_threshold)
+    report.anomalies += stats.detect_distribution(
+        conn, psi_threshold,
+        dimensions=(("dwd_orders", "order_status", "order_purchase_timestamp"),
+                    ("dwd_reviews", "review_score", "review_creation_date")),
+    )
     report.stats["l1_distribution"] = round(time.time() - t0, 4)
 
     t0 = time.time()

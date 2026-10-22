@@ -134,19 +134,58 @@ class Warehouse:
                 FROM geolocation
             """)
 
-        # 3) DWS：日粒度指标表（L1 统计检测对比基线的对象）
+        # 3) DWS：聚合指标表（L1 volume/distribution 的多基线：daily_metrics 供 volume，dwd_orders/dwd_reviews 供 distribution）
         if {"orders", "order_items"} <= built:
             conn.execute("""
                 CREATE OR REPLACE TABLE daily_metrics AS
                 SELECT
-                    CAST(o.order_purchase_timestamp AS TIMESTAMP)::DATE AS order_date,
-                    COUNT(DISTINCT o.order_id) AS orders,
-                    COALESCE(SUM(i.price), 0.0) AS gmv,
-                    COALESCE(SUM(i.price), 0.0) / NULLIF(COUNT(DISTINCT o.order_id), 0) AS avg_order_value
+                    CAST(o.order_purchase_timestamp AS TIMESTAMP)::DATE AS order_date,  -- 下单日期
+                    COUNT(DISTINCT o.order_id) AS orders,                                -- 单量
+                    COALESCE(SUM(i.price), 0.0) AS gmv,                                  -- GMV（成交额）
+                    COALESCE(SUM(i.price), 0.0) / NULLIF(COUNT(DISTINCT o.order_id), 0) AS avg_order_value  -- 客单价
                 FROM orders o
                 LEFT JOIN order_items i ON o.order_id = i.order_id
                 GROUP BY 1
                 ORDER BY 1
+            """) # GROUP BY 1和ORDER BY 1是位置引用，指SELECT列表的第1的表达式，即order_date，也就是按order_date分组和排序
+
+        # DWS 补聚合（§14 #3）：seller/category/payment 三个横截面聚合表，补上 DWS 的「多基线」。
+        # 读取口径沿用「需要 TRY_CAST 的列才走 DWD」：评分/金额/分期是 TRY_CAST 列 → 读 DWD；
+        # price、product_category_name 在 ODS 已是干净 DOUBLE/字符串 → 读 ODS。
+        if {"order_items", "reviews"} <= built:
+            conn.execute("""
+                CREATE OR REPLACE TABLE seller_metrics AS
+                SELECT
+                    i.seller_id,
+                    COUNT(DISTINCT i.order_id) AS orders,   -- 单量（去重订单）
+                    SUM(i.price) AS gmv,                    -- GMV（成交额）
+                    AVG(r.review_score) AS avg_score        -- 平均评分（关联订单评价；一单多 seller 时评分重复计，检测导向可接受）
+                FROM order_items i
+                LEFT JOIN dwd_reviews r ON i.order_id = r.order_id
+                GROUP BY i.seller_id
+            """)
+        if {"order_items", "products"} <= built:
+            conn.execute("""
+                CREATE OR REPLACE TABLE category_metrics AS
+                SELECT
+                    p.product_category_name,                 -- 品类名
+                    COUNT(DISTINCT i.order_id) AS orders,    -- 单量（去重订单）
+                    SUM(i.price) AS gmv,                     -- GMV（成交额）
+                    COUNT(DISTINCT i.product_id) AS distinct_products  -- 品类下商品数
+                FROM order_items i
+                JOIN products p ON i.product_id = p.product_id
+                GROUP BY p.product_category_name
+            """)
+        if "payments" in built:
+            conn.execute("""
+                CREATE OR REPLACE TABLE payment_summary AS
+                SELECT
+                    payment_type,                            -- 支付方式
+                    COUNT(*) AS payments,                    -- 支付笔数
+                    SUM(payment_value) AS total_value,       -- 支付总额
+                    AVG(payment_installments) AS avg_installments  -- 平均分期期数
+                FROM dwd_payments
+                GROUP BY payment_type
             """)
 
 
