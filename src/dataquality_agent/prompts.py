@@ -151,33 +151,35 @@ def build_specialist_prompt(anomaly) -> str:
     )
 
 
-# ---- Supervisor 分诊（§13 Phase 2）----
+# ---- Supervisor 分诊（§13）----
 
-SUBMIT_ROUTE_SCHEMA = {
+SUBMIT_TRIAGE_SCHEMA = {
     "type": "function",
     "function": {
-        "name": "submit_route",
-        "description": "决定下一步派哪个专职 Agent 继续查，或已查够就 done",
+        "name": "submit_triage",
+        "description": "为每个异常指派一个专职 Agent",
         "parameters": {
             "type": "object",
             "properties": {
-                "route": {"type": "string", "enum": ["lineage", "sql", "cases", "done"]},
+                "assignments": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["lineage", "sql", "cases"]},
+                },
             },
-            "required": ["route"],
+            "required": ["assignments"],
         },
     },
 }
 
 
-def build_supervisor_prompt(anomalies, findings: dict, unvisited: list[str]) -> str:
-    """Supervisor 分诊 prompt：给异常 + 已收集 findings + 可派 Agent，决定下一步。"""
-    anomaly_desc = "; ".join(f"{a.type}/{a.table}" for a in anomalies)
-    finding_desc = "; ".join(f"{k}={v}" for k, v in findings.items() if v)
+def build_triage_prompt(anomalies) -> str:
+    """Supervisor 分诊 prompt：给异常清单，为每个异常指派一个专职 Agent。"""
+    desc = "; ".join(f"[{i}] {a.type}/{a.table}" for i, a in enumerate(anomalies))
     return (
-        f"异常清单：{anomaly_desc}。"
-        f"已收集证据：{finding_desc or '（无）'}。"
-        f"可派专职 Agent：{unvisited}（lineage=血缘归因、sql=SQL排查、cases=案例检索）。"
-        "决定下一步：若还需调查就派一个最合适的 Agent，否则 done。"
+        f"异常清单（按顺序）：{desc}。"
+        "为每个异常指派一个专职 Agent（lineage=血缘归因、sql=SQL排查、cases=案例检索）。"
+        "规则：孤儿外键/停更/血缘断裂 → lineage；重复/负值/空值/一致性 → sql；不确定可查案例 → cases。"
+        "调用 submit_triage 返回 assignments 列表（与异常一一对应）。"
     )
 
 

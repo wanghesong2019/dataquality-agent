@@ -167,12 +167,13 @@ def make_diagnose_node(model, tools: list, max_steps: int = 5):
     return diagnose
 
 
-def _aggregate_one(anomaly: Anomaly, lineage: str, sql: str, cases: str, model) -> Diagnosis:
-    """聚合诊断：把 3 个专职 Agent 的 finding 拼成证据，调 submit_diagnosis 收敛成 Diagnosis。
+def _aggregate_one(anomaly: Anomaly, finding: str, model) -> Diagnosis:
+    """聚合诊断：把被指派的专职 Agent 的 finding 作为证据，调 submit_diagnosis 收敛成 Diagnosis。
 
     证据已由专职 Agent 收集，这里不再跑工具循环，只做「证据 → 结论」这一步。
+    finding 可能含多行工具调用，按行拆成 evidence_chain（供轨迹评测解析）。
     """
-    evidence = [e for e in (lineage, sql, cases) if e]
+    evidence = [l for l in finding.split("\n") if l] if finding else []
     resp = model.chat(
         [{"role": "user", "content": build_aggregate_diagnose_prompt(anomaly, evidence)}],
         tools=[SUBMIT_DIAGNOSIS_SCHEMA],
@@ -191,23 +192,16 @@ def _aggregate_one(anomaly: Anomaly, lineage: str, sql: str, cases: str, model) 
 
 
 def make_aggregate_diagnose_node(model):
-    """返回聚合诊断节点（§13 Supervisor 的 diagnose）：读 3 组 findings → Diagnosis。"""
+    """返回聚合诊断节点（§13 Supervisor 的 diagnose）：读 findings（每个异常一条）→ Diagnosis。"""
     tracer = getattr(model, "tracer", None)
 
     @trace_step(tracer, "node:diagnose")
     def diagnose(state):
         anomalies = state.get("anomalies", [])
-        lineage = state.get("lineage_findings", [])
-        sql = state.get("sql_findings", [])
-        cases = state.get("cases_findings", [])
+        findings = state.get("findings", [])
         diagnoses = []
         for i, a in enumerate(anomalies):
-            diagnoses.append(_aggregate_one(
-                a,
-                lineage[i] if i < len(lineage) else "",
-                sql[i] if i < len(sql) else "",
-                cases[i] if i < len(cases) else "",
-                model,
-            ))
+            finding = findings[i] if i < len(findings) else ""
+            diagnoses.append(_aggregate_one(a, finding, model))
         return {"diagnoses": diagnoses}
     return diagnose

@@ -48,16 +48,22 @@ def _investigate(anomaly, model, tools, system_prompt, max_steps, tracer) -> str
 
 
 def _make_specialist(name: str, system_prompt: str, model, tools, max_steps: int):
-    """通用专职 Agent 工厂：对每个 anomaly 跑聚焦工具循环，产出 findings。"""
+    """通用专职 Agent 工厂：只处理「分诊指派给自己的」异常，产出对应位置的 finding。
+
+    分诊语义：每个异常只派一个专职 Agent，所以这里按 assignments 过滤，只调查分配给我的子集，
+    写回 findings 里自己负责的下标（其余下标保持原样）。
+    """
     tracer = getattr(model, "tracer", None)
 
     @trace_step(tracer, f"node:{name}")
     def specialist(state):
-        findings = [
-            _investigate(a, model, tools, system_prompt, max_steps, tracer)
-            for a in state.get("anomalies", [])
-        ]
-        return {f"{name}_findings": findings}
+        anomalies = state.get("anomalies", [])
+        assignments = state.get("assignments", [])
+        findings = list(state.get("findings", [""] * len(anomalies)))
+        for i, a in enumerate(anomalies):
+            if i < len(assignments) and assignments[i] == name:
+                findings[i] = _investigate(a, model, tools, system_prompt, max_steps, tracer)
+        return {"findings": findings}
     return specialist
 
 

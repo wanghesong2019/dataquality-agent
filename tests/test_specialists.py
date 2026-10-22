@@ -1,4 +1,4 @@
-"""§13 Phase 1：3 个专职 Agent 的单元测试。"""
+"""§13：3 个专职 Agent 的单元测试（只处理分诊指派给自己的异常）。"""
 import json
 
 from dataquality_agent.agents.specialists import make_cases_agent, make_lineage_agent, make_sql_agent
@@ -42,22 +42,34 @@ def _model_with_tool_call(tool_name, args):
     return FakeModel()
 
 
-def test_lineage_agent_produces_finding():
+def _state(assignments):
+    return {
+        "anomalies": [Anomaly(type="orphan", table="order_items")],
+        "assignments": assignments,
+        "findings": [""],
+    }
+
+
+def test_lineage_agent_processes_assigned():
     node = make_lineage_agent(_model_with_tool_call("lineage", {"table": "order_items"}), FakeLineage())
-    result = node({"anomalies": [Anomaly(type="orphan", table="order_items")]})
-    assert len(result["lineage_findings"]) == 1
-    assert "orders" in result["lineage_findings"][0]
+    result = node(_state(["lineage"]))
+    assert "orders" in result["findings"][0]
 
 
-def test_cases_agent_produces_finding():
+def test_lineage_agent_skips_unassigned():
+    """未分给 lineage → 不处理，finding 保持空。"""
+    node = make_lineage_agent(_model_with_tool_call("lineage", {"table": "order_items"}), FakeLineage())
+    result = node(_state(["sql"]))
+    assert result["findings"][0] == ""
+
+
+def test_cases_agent_processes_assigned():
     node = make_cases_agent(_model_with_tool_call("cases", {"query": "孤儿"}), FakeRetriever())
-    result = node({"anomalies": [Anomaly(type="orphan", table="order_items")]})
-    assert len(result["cases_findings"]) == 1
-    assert "orphan_items" in result["cases_findings"][0]
+    result = node(_state(["cases"]))
+    assert "orphan_items" in result["findings"][0]
 
 
-def test_sql_agent_produces_finding():
+def test_sql_agent_processes_assigned():
     node = make_sql_agent(_model_with_tool_call("schema", {"table": "orders"}), FakeConn())
-    result = node({"anomalies": [Anomaly(type="duplicate", table="orders")]})
-    assert len(result["sql_findings"]) == 1
-    assert "schema" in result["sql_findings"][0]
+    result = node(_state(["sql"]))
+    assert "schema" in result["findings"][0]

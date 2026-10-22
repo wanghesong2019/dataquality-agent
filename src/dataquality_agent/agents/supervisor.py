@@ -1,54 +1,52 @@
-"""Supervisor 分诊节点（§13 Phase 2）：LLM 决定下一步派哪个专职 Agent，或 done。
+"""Supervisor 分诊节点（§13）：一次性给每个异常指派一个专职 Agent。
 
+分诊语义：每个异常只派一个专职 Agent（不是全部跑一遍）。
 robust 设计（三道兜底，对应文档 §13「分诊」）：
-① LLM 无效/超时 → 确定性 round-robin（按 lineage→sql→cases 取第一个没跑过的）；
-② route 只允许 {lineage,sql,cases,done}（结构化 schema 约束），非法值/已跑过的落兜底；
-③ 全部派过 → 强制 done（保证终止，不无限循环）。
+① LLM 无效/超时 → 确定性映射（orphan/lineage_break/freshness → lineage，其余 → sql）；
+② 每个 assignment 只允许 {lineage,sql,cases}（结构化 schema），非法值落兜底；
+③ 分诊只做一次（不循环），专职 Agent 各处理分给自己的子集。
 """
 import json
 
 from dataquality_agent.observability.tracing import trace_step
-from dataquality_agent.prompts import SUBMIT_ROUTE_SCHEMA, build_supervisor_prompt
+from dataquality_agent.prompts import SUBMIT_TRIAGE_SCHEMA, build_triage_prompt
 
-_SPECIALIST_KEYS = {"lineage": "lineage_findings", "sql": "sql_findings", "cases": "cases_findings"}
-
-
-def _fallback_route(unvisited: list[str]) -> str:
-    """确定性兜底：取第一个没跑过的专职 Agent；都跑过则 done（防御，正常到不了）。"""
-    return unvisited[0] if unvisited else "done"
+_LINEAGE_TYPES = {"orphan", "lineage_break", "freshness"}
 
 
-def _llm_route(model, anomalies, findings: dict, unvisited: list[str]) -> str | None:
-    """LLM 分诊：读异常 + 已收集 findings，决定下一个 unvisited 专职 Agent 或 done。"""
+def _default_assignment(anomaly) -> str:
+    """确定性兜底：上游类异常 → lineage，其余 → sql（数据取证最通用）。"""
+    return "lineage" if anomaly.type in _LINEAGE_TYPES else "sql"
+
+
+def _llm_triage(model, anomalies) -> list[str]:
+    """LLM 分诊：为每个异常指派一个专职 Agent，返回 assignments 列表（与 anomalies 对齐）。"""
     resp = model.chat(
-        [{"role": "user", "content": build_supervisor_prompt(anomalies, findings, unvisited)}],
-        tools=[SUBMIT_ROUTE_SCHEMA],
-        tool_choice={"type": "function", "function": {"name": "submit_route"}},
+        [{"role": "user", "content": build_triage_prompt(anomalies)}],
+        tools=[SUBMIT_TRIAGE_SCHEMA],
+        tool_choice={"type": "function", "function": {"name": "submit_triage"}},
     )
     for call in (resp or {}).get("tool_calls", []):
-        if call.get("function", {}).get("name") == "submit_route":
+        if call.get("function", {}).get("name") == "submit_triage":
             try:
-                return json.loads(call["function"]["arguments"]).get("route")
+                return json.loads(call["function"]["arguments"]).get("assignments", [])
             except (json.JSONDecodeError, KeyError):
-                return None
-    return None
+                return []
+    return []
 
 
-def make_supervisor_node(model):
-    """返回 Supervisor 分诊节点：读 state 决定 route，返回 route + route_history。"""
+def make_triage_node(model):
+    """返回 Supervisor 分诊节点：给每个异常指派专职 Agent，产出 assignments + 空 findings。"""
     tracer = getattr(model, "tracer", None)
 
     @trace_step(tracer, "node:supervisor")
-    def supervisor(state):
-        history = state.get("route_history", [])
-        unvisited = [n for n in ("lineage", "sql", "cases") if n not in history]
-        if not unvisited:
-            return {"route": "done"}  # 全派过 → 终止
-
-        findings = {k: state.get(k, []) for k in _SPECIALIST_KEYS.values()}
-        route = _llm_route(model, state.get("anomalies", []), findings, unvisited)
-        if route not in unvisited:
-            route = _fallback_route(unvisited)  # LLM 无效/非法/选了已跑过的 → 兜底
-
-        return {"route": route, "route_history": history + [route]}
-    return supervisor
+    def triage(state):
+        anomalies = state.get("anomalies", [])
+        assignments = _llm_triage(model, anomalies)
+        # 对齐 + 兜底：长度不够或非法值 → 确定性映射
+        result = []
+        for i, a in enumerate(anomalies):
+            r = assignments[i] if i < len(assignments) else ""
+            result.append(r if r in ("lineage", "sql", "cases") else _default_assignment(a))
+        return {"assignments": result, "findings": [""] * len(anomalies)}
+    return triage

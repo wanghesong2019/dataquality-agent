@@ -462,25 +462,25 @@
 - 架构：单图 5 节点 → **Supervisor + 4 专职 Agent**（orchestrator 分诊 + 规则检测 / 血缘归因 / SQL 排查 / 案例检索），各 Agent 独立 system prompt + 工具集 + 预算。
 - 对照指标：归因正确率、单次 token、latency、失败分型——与单图版 before/after 对比（这才是"可进化"的证据）。
 
-### 架构设计（2026-10-22 规划）
+### 架构设计（2026-10-22 规划，2026-10-23 实现）
 
-**目标图**：`inspect(规则检测) → supervisor(分诊) ↕{血缘归因 | SQL排查 | 案例检索} → diagnose(聚合) → remediate → approve → report`
+**目标图**：`inspect(规则检测) → triage(分诊) → lineage → sql → cases → diagnose(聚合) → remediate → approve → report`
 
-**分诊（robust 设计，第一优先）**：LLM 分诊节点读 state（异常 + 已收集 findings）决定「派哪个专职 Agent / 已查够 → 聚合」，LangGraph conditional edges 路由。三道兜底保证健壮：① 异常类型 → 默认专职 Agent 的确定性映射（LLM 无结论/超时则 fallback）；② 分诊输出用结构化 schema 约束 route 只允许 `{lineage, sql, cases, done}`，非法值落 fallback；③ 分诊本身设 max_steps 预算，防无限循环；分诊走 temperature=0 保证可复现。
+**分诊（robust 设计，第一优先）**：triage 一次性给每个异常指派**一个**专职 Agent（不是全部跑一遍）。三道兜底：① 异常类型 → 确定性映射（orphan/停更/血缘断裂 → lineage，其余 → sql）；② 结构化 schema 约束 assignment 只允许 `{lineage, sql, cases}`，非法值落兜底；③ 分诊只做一次（不循环），专职 Agent 各处理分给自己的子集；temperature=0 可复现。
 
-**3 专职 Agent（拆 diagnose 的 4 工具）**：血缘归因 = `lineage` 工具；SQL排查 = `schema`+`sql`；案例检索 = `cases`。各独立 system prompt + 工具集 + max_steps 预算 + `trace_step` span。规则检测（inspect）保持确定性不动。
+**3 专职 Agent（拆 diagnose 的 4 工具）**：血缘归因 = `lineage` 工具；SQL排查 = `schema`+`sql`；案例检索 = `cases`。各独立 system prompt + 工具集 + max_steps 预算 + `trace_step` span，只处理分诊指派给自己的异常。规则检测（inspect）保持确定性。
 
-**状态与聚合**：`AgentState` 加 `findings` 字段；`diagnose` 聚合节点读 findings → `submit_diagnosis` 产出 Diagnosis。可并行、token 预算有界、职责清晰。
+**状态与聚合**：`AgentState` 加 `assignments`（每个异常指派的专职 Agent）+ `findings`（每个异常的 finding）；`diagnose` 聚合节点读 findings → `submit_diagnosis`。
 
-**分阶段**：P1 抽 3 专职 Agent → P2 加 Supervisor 循环 → P3 findings + 聚合 + 接下游 → P4 `run_eval` before/after 填 line 469 表。
+**分阶段**：P1 抽 3 专职 Agent → P2 加 triage 分诊 → P3 findings + 聚合 + 接下游 → P4 `run_eval` before/after（已测：token 降 12~14 倍）。
 
-**诚实边界**：归因正确率可能不升反降（分诊错会级联到归因错），before/after 是诚实验证、不是一定更好。
+**诚实边界**：分诊的价值是「质量持平（归因 0.75）+ 职责清晰 + token 降 12~14 倍」，不是「归因正确率提升」。
 
 ### 简历怎么呈现（一个项目，两代演进）
 
 **不拆成两个项目**——同一个业务换个架构写两遍 = 注水，必被识破。写成两代演进并主动讲"为什么改"：
 
-> "第一版单图 5 节点流水线，职责耦合、单点故障整链中断、token 预算难控；重构为 Supervisor + 4 专职 Agent，归因正确率 0.75 → X、单次 token 65-75 万 → Y。"
+> "第一版单图 5 节点流水线，职责耦合、单点故障整链中断、token 预算难控；重构为 Supervisor + 专职 Agent（orchestrator 分诊 + 规则检测/血缘归因/SQL排查/案例检索），归因正确率 0.75 → 0.75（持平）、单次 token 65-75 万 → ~5 万（降 12~14 倍，分诊让每个异常只产出一条聚焦 finding）。"
 
 一个有演进史的项目 > 两个平铺项目，同时证明架构判断力 + 可进化（呼应 §12 Data Flywheel）。
 

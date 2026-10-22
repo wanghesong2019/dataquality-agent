@@ -85,8 +85,5 @@ class AgentState(TypedDict, total=False):
     loop_count: int  # 防循环计数器
     cost: CostLedger  # 成本台账
     # §13 Supervisor 状态
-    route: str                # supervisor 分诊结果（conditional edge 用）
-    route_history: list[str]   # 已派过的专职 Agent（保证终止）
-    lineage_findings: list[str]
-    sql_findings: list[str]
-    cases_findings: list[str]
+    assignments: list[str]     # 每个异常指派的专职 Agent（lineage/sql/cases）
+    findings: list[str]        # 每个异常的 finding（由被指派的专职 Agent 产出，与 anomalies 对齐）
