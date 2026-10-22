@@ -439,6 +439,8 @@
   6. **Data Flywheel 完整闭环**——低分 case → 失败挖掘 → 人工复核 → 回归集 → 优化 → 离线 eval → A/B → 上线。
      - **第一块可落地拼图：注入异常 → RAG 案例库回填（检索调优）**。跑 `run_eval.py` 时把 `InjectedAnomaly`（含 ground-truth 根因）+ `Diagnosis` + `Remediation` 三元组沉淀进 cases 库（一条一 chunk），案例库从「4 条 demo」变成「有真实标签的注入异常集」，`eval/retrieval.py` 的 Recall@K/MRR 有了真实分母，据此调 rerank/BM25。来源两类：注入异常（根因标签已知、最适合调优）+ 真实数据自带异常（380/609/8556，需 agent 自归因、用于扩充真实性）。
 
+> **评测注入覆盖缺口（诚实边界）**：`scripts/run_eval.py` 的 INJECTION_SPECS 只注入 4 类 L0（orphan/duplicate/value_range/null_rate），而注入器已支持 10 类。缺口：① 3 类 L1（lineage_break/freshness/schema_drift）有注入方法却没进 eval → **L1 检测无端到端 F1**；② volume/distribution 连注入方法都没有；③ 3 类 cross-table（amount/state/zip）有意不进（always-on，靠基线证明）。**所以简历的「检测 F1 1.0」只指 L0**。扩展路线：先补 L1 三类注入进 INJECTION_SPECS → 再设计 volume/distribution 注入（造日成交量突刺/状态分布漂移）→ 长期 L2 语义量化评测。
+
 > **简历定位**：能写，但突出真有的（ground-truth 评测、复检口径、Judge 校准、只读护栏）；别把"可进化"吹满——补完 P1 三块后才能理直气壮说"质量工程"。
 
 **来源**：用户提供的 2026 Agent 质量工程文档 + 本项目对照分析。
