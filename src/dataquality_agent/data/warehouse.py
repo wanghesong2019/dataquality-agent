@@ -50,11 +50,11 @@ class Warehouse:
                 CREATE OR REPLACE TABLE dwd_orders AS
                 SELECT
                     order_id, customer_id, order_status,
-                    CAST(order_purchase_timestamp AS TIMESTAMP) AS order_purchase_timestamp,
-                    CAST(order_approved_at AS TIMESTAMP) AS order_approved_at,
-                    CAST(order_delivered_carrier_date AS TIMESTAMP) AS order_delivered_carrier_date,
-                    CAST(order_delivered_customer_date AS TIMESTAMP) AS order_delivered_customer_date,
-                    CAST(order_estimated_delivery_date AS TIMESTAMP) AS order_estimated_delivery_date
+                    CAST(order_purchase_timestamp AS TIMESTAMP) AS order_purchase_timestamp,  -- 下单时间
+                    CAST(order_approved_at AS TIMESTAMP) AS order_approved_at,  -- 支付批准时间
+                    CAST(order_delivered_carrier_date AS TIMESTAMP) AS order_delivered_carrier_date,  -- 交付承运商时间（交给物流）
+                    CAST(order_delivered_customer_date AS TIMESTAMP) AS order_delivered_customer_date,  -- 送达客户时间
+                    CAST(order_estimated_delivery_date AS TIMESTAMP) AS order_estimated_delivery_date  -- 预计送达日期
                 FROM orders
             """)
         if "order_items" in built:
@@ -62,9 +62,9 @@ class Warehouse:
                 CREATE OR REPLACE TABLE dwd_order_items AS
                 SELECT
                     order_id, order_item_id, product_id, seller_id,
-                    CAST(shipping_limit_date AS TIMESTAMP) AS shipping_limit_date,
+                    CAST(shipping_limit_date AS TIMESTAMP) AS shipping_limit_date,  -- 卖家最晚发货期限
                     CAST(price AS DOUBLE) AS price,
-                    CAST(freight_value AS DOUBLE) AS freight_value
+                    CAST(freight_value AS DOUBLE) AS freight_value  -- 运费
                 FROM order_items
             """)
 
@@ -76,10 +76,10 @@ class Warehouse:
                 CREATE OR REPLACE TABLE dwd_payments AS
                 SELECT
                     order_id,
-                    TRY_CAST(payment_sequential AS INTEGER) AS payment_sequential,
+                    TRY_CAST(payment_sequential AS INTEGER) AS payment_sequential,  -- 支付序号（同订单第几笔支付）
                     payment_type,
-                    TRY_CAST(payment_installments AS INTEGER) AS payment_installments,
-                    TRY_CAST(payment_value AS DOUBLE) AS payment_value
+                    TRY_CAST(payment_installments AS INTEGER) AS payment_installments,  -- 分期期数
+                    TRY_CAST(payment_value AS DOUBLE) AS payment_value  -- 支付金额
                 FROM payments
             """)
         if "reviews" in built:
@@ -87,10 +87,10 @@ class Warehouse:
                 CREATE OR REPLACE TABLE dwd_reviews AS
                 SELECT
                     review_id, order_id,
-                    TRY_CAST(review_score AS INTEGER) AS review_score,
+                    TRY_CAST(review_score AS INTEGER) AS review_score,  -- 评分（1~5）
                     review_comment_title, review_comment_message,
-                    TRY_CAST(review_creation_date AS TIMESTAMP) AS review_creation_date,
-                    TRY_CAST(review_answer_timestamp AS TIMESTAMP) AS review_answer_timestamp
+                    TRY_CAST(review_creation_date AS TIMESTAMP) AS review_creation_date,  -- 评价创建时间
+                    TRY_CAST(review_answer_timestamp AS TIMESTAMP) AS review_answer_timestamp  -- 商家回复时间
                 FROM reviews
             """)
         if "products" in built:
@@ -100,7 +100,7 @@ class Warehouse:
                     product_id, product_category_name,
                     TRY_CAST(product_name_lenght AS INTEGER) AS product_name_lenght,
                     TRY_CAST(product_description_lenght AS INTEGER) AS product_description_lenght,
-                    TRY_CAST(product_photos_qty AS INTEGER) AS product_photos_qty,
+                    TRY_CAST(product_photos_qty AS INTEGER) AS product_photos_qty,  -- 商品图片数量
                     TRY_CAST(product_weight_g AS DOUBLE) AS product_weight_g,
                     TRY_CAST(product_length_cm AS DOUBLE) AS product_length_cm,
                     TRY_CAST(product_height_cm AS DOUBLE) AS product_height_cm,
@@ -110,7 +110,11 @@ class Warehouse:
         if "sellers" in built:
             conn.execute("""
                 CREATE OR REPLACE TABLE dwd_sellers AS
-                SELECT seller_id, seller_zip_code_prefix, seller_city, seller_state
+                SELECT
+                    seller_id,
+                    seller_zip_code_prefix,  -- 卖家邮编前缀
+                    seller_city,
+                    seller_state
                 FROM sellers
             """)
         if "customers" in built:
@@ -123,7 +127,7 @@ class Warehouse:
             conn.execute("""
                 CREATE OR REPLACE TABLE dwd_geolocation AS
                 SELECT
-                    geolocation_zip_code_prefix,
+                    geolocation_zip_code_prefix,  -- 邮编前缀
                     TRY_CAST(geolocation_lat AS DOUBLE) AS geolocation_lat,
                     TRY_CAST(geolocation_lng AS DOUBLE) AS geolocation_lng,
                     geolocation_city, geolocation_state
