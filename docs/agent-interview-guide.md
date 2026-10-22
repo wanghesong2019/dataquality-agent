@@ -256,7 +256,7 @@
 
 **本项目怎么答**：
 > 归因的"相似案例检索"是 dense（语义）+ BM25（关键词）两路召回、RRF 融合（`rag/retriever.py:25` 的 `search` 和 `:53` 的 `_rrf`，k=60）。Embedding 是可插拔的：配了 `EMBEDDING_BASE_URL` 走 OpenAI 兼容的 BGE-M3，否则词袋 fallback（`rag/embedder.py:63`）。
-> **RAG 深度（已做）**：BM25 现在是**标准的**（IDF + k1/b 长度归一化，`rag/retriever.py` 的 `_bm25`），并补了 `llm_rerank`（`rag/rerank.py`，LLM 精排，Cross-Encoder 的 LLM 版）和检索评测 `recall_at_k`/`mrr`（`eval/retrieval.py`）。**诚实边界**：案例库仍只有 4 条 demo，检索评测停在单元级，真正的 Recall@K 曲线要等案例库规模化、有标注集才能跑。
+> **RAG 深度（已做）**：BM25 现在是**标准的**（IDF + k1/b 长度归一化，`rag/retriever.py` 的 `_bm25`），并补了 `llm_rerank`（`rag/rerank.py`，LLM 精排，Cross-Encoder 的 LLM 版）。**案例库已回填**：`rag/cases.py` 把 10 类可注入异常沉淀成案例（含 ground-truth 根因），端到端评测 `evaluate_retrieval`（`eval/retrieval.py`）实测 **Recall@3=1.0 / MRR=1.0**（10 案例）。**中文分词已修**：`text.split()` 对中文无效（修复前 Recall@3 只有 0.3），改用字符 bigram 分词（`rag/tokenizer.py`，无词典、离线），生产再换 jieba/BGE-M3。
 
 **来源**：llm-master rag_interview + 卡码笔记《RAG 大厂面试题汇总》+ 腾讯《为什么你的 RAG 检索不到答案》。
 
@@ -342,8 +342,8 @@
 - Trace = 因果树（定位单次链路），Log = 事件流（解释状态迁移），Metric = 趋势告警（P95/错误率/成本），四者用 trace_id 关联。
 
 **本项目怎么答**：
-> 每次 LLM 调用都埋一个 `Span`（记录输入/输出/token/耗时），`CostLedger` 累计 token/成本/调用次数（`observability/tracing.py`、`llm.py`）。可观测是**旁路**：`Tracer` 永远记内存、`backend` 可选（`end_span` 里 `if self.backend is not None` 才转发），监控挂了不拖垮主流程；`LangfuseBackend` 惰性导入 + 未配 key 就 no-op，由 `wiring.py` 按 `LANGFUSE_PUBLIC_KEY/SECRET_KEY` env 接进链路。评估报告直接输出 `total_tokens/total_cost/llm_calls/latency`（`eval/metrics.py`），所以"单次巡检 ~78 万 token / ~39s"是有账可查的。
-> **Token 计数（已修复）**：从「按字符估算」改为**读 API 返回的 `usage.total_tokens` 真实计数**（`llm.py:20` 的 `_count_tokens`），客户端不返回 usage 时才回退字符估算兜底。所以"78 万 token"现在有 API 依据，成本台账可信。
+> 每次 LLM 调用都埋一个 `Span`（记录输入/输出/token/耗时），`CostLedger` 累计 token/成本/调用次数（`observability/tracing.py`、`llm.py`）。可观测是**旁路**：`Tracer` 永远记内存、`backend` 可选（`end_span` 里 `if self.backend is not None` 才转发），监控挂了不拖垮主流程；`LangfuseBackend` 惰性导入 + 未配 key 就 no-op，由 `wiring.py` 按 `LANGFUSE_PUBLIC_KEY/SECRET_KEY` env 接进链路。评估报告直接输出 `total_tokens/total_cost/llm_calls/latency`（`eval/metrics.py`），所以"单次巡检 ~65-75 万 token / ~60-80s"是有账可查的。
+> **Token 计数（已修复）**：从「按字符估算」改为**读 API 返回的 `usage.total_tokens` 真实计数**（`llm.py:20` 的 `_count_tokens`），客户端不返回 usage 时才回退字符估算兜底。所以"65-75 万 token"现在有 API 依据，成本台账可信。
 
 **来源**：agent-interview observability + 阿里云《RDS Agent 可观测》。
 
@@ -462,11 +462,25 @@
 - 架构：单图 5 节点 → **Supervisor + 4 专职 Agent**（orchestrator 分诊 + 规则检测 / 血缘归因 / SQL 排查 / 案例检索），各 Agent 独立 system prompt + 工具集 + 预算。
 - 对照指标：归因正确率、单次 token、latency、失败分型——与单图版 before/after 对比（这才是"可进化"的证据）。
 
+### 架构设计（2026-10-22 规划）
+
+**目标图**：`inspect(规则检测) → supervisor(分诊) ↕{血缘归因 | SQL排查 | 案例检索} → diagnose(聚合) → remediate → approve → report`
+
+**分诊（robust 设计，第一优先）**：LLM 分诊节点读 state（异常 + 已收集 findings）决定「派哪个专职 Agent / 已查够 → 聚合」，LangGraph conditional edges 路由。三道兜底保证健壮：① 异常类型 → 默认专职 Agent 的确定性映射（LLM 无结论/超时则 fallback）；② 分诊输出用结构化 schema 约束 route 只允许 `{lineage, sql, cases, done}`，非法值落 fallback；③ 分诊本身设 max_steps 预算，防无限循环；分诊走 temperature=0 保证可复现。
+
+**3 专职 Agent（拆 diagnose 的 4 工具）**：血缘归因 = `lineage` 工具；SQL排查 = `schema`+`sql`；案例检索 = `cases`。各独立 system prompt + 工具集 + max_steps 预算 + `trace_step` span。规则检测（inspect）保持确定性不动。
+
+**状态与聚合**：`AgentState` 加 `findings` 字段；`diagnose` 聚合节点读 findings → `submit_diagnosis` 产出 Diagnosis。可并行、token 预算有界、职责清晰。
+
+**分阶段**：P1 抽 3 专职 Agent → P2 加 Supervisor 循环 → P3 findings + 聚合 + 接下游 → P4 `run_eval` before/after 填 line 469 表。
+
+**诚实边界**：归因正确率可能不升反降（分诊错会级联到归因错），before/after 是诚实验证、不是一定更好。
+
 ### 简历怎么呈现（一个项目，两代演进）
 
 **不拆成两个项目**——同一个业务换个架构写两遍 = 注水，必被识破。写成两代演进并主动讲"为什么改"：
 
-> "第一版单图 5 节点流水线，职责耦合、单点故障整链中断、token 预算难控；重构为 Supervisor + 4 专职 Agent，归因正确率 0.75 → X、单次 token 78 万 → Y。"
+> "第一版单图 5 节点流水线，职责耦合、单点故障整链中断、token 预算难控；重构为 Supervisor + 4 专职 Agent，归因正确率 0.75 → X、单次 token 65-75 万 → Y。"
 
 一个有演进史的项目 > 两个平铺项目，同时证明架构判断力 + 可进化（呼应 §12 Data Flywheel）。
 
@@ -510,5 +524,5 @@
 - **防幻觉**：证据闸门 + evidence_chain 以真实调用为准（丢弃自述）。
 - **安全**：SafeSQL 只读白名单，工具层断掉 DELETE。
 - **评估**：ground-truth 对齐 + 复检口径 + 可逆/丢失分型；LLM-as-Judge 配人工校准。
-- **数字**：F1=1.0 / 归因 0.75 / 整改 0.50（可逆 1.0 · 丢失 0.0）/ 端到端 0.50 / ~39s / ~78 万 token（真实 usage 计数）。
+- **数字**：F1=1.0 / 归因 0.75 / 整改 0.50（可逆 1.0 · 丢失 0.0）/ 端到端 0.50 / ~60-80s / ~65-75 万 token（真实 usage 计数）。
 - **诚实边界**：数据丢失异常整改 0.0、血缘硬编码、案例库 4 条 demo——每个都能变成"我清楚这里为什么这样做、下一步怎么补"的加分叙事。

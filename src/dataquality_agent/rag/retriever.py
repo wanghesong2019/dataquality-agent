@@ -2,6 +2,7 @@
 import math
 
 from dataquality_agent.rag.embedder import Embedder
+from dataquality_agent.rag.tokenizer import tokenize
 
 
 class Retriever:
@@ -20,7 +21,7 @@ class Retriever:
         """cases: [{id, text}]。建索引时顺带算 document frequency 和平均文档长度（BM25 需要）。"""
         texts = [c["text"] for c in cases]
         vecs = self.embedder.embed(texts)
-        tokenized = [c["text"].split() for c in cases]
+        tokenized = [tokenize(c["text"]) for c in cases]
         self._df = {}
         for toks in tokenized:
             for t in set(toks):
@@ -31,7 +32,7 @@ class Retriever:
 
     def search(self, query: str, k: int = 3) -> list[dict]:
         q_dense = self.embedder.embed([query])[0]
-        q_tokens = query.split()
+        q_tokens = tokenize(query)
         dense = [(d["id"], self._cosine(q_dense, d["dense"])) for d in self.docs]
         sparse = [(d["id"], self._bm25(q_tokens, d["tokens"])) for d in self.docs]
         ranked_ids = self._rrf(dense, sparse, k)
