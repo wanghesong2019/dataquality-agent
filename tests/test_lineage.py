@@ -23,6 +23,15 @@ def test_lineage_build_upstream():
     assert l.upstream("payment_summary") == ["dwd_payments"]
 
 
+def test_lineage_build_upstream_excludes_fk():
+    """build_upstream 只返回构建血缘、不含 FK 依赖（血缘断裂检测用，避免 FK 自然滞后误报）。"""
+    l = Lineage()
+    assert l.build_upstream("order_items") == []  # order_items 是 ODS，无构建上游
+    assert l.build_upstream("reviews") == []
+    assert l.build_upstream("daily_metrics") == ["orders", "order_items"]
+    assert l.build_upstream("seller_metrics") == ["order_items", "dwd_reviews"]
+
+
 def test_lineage_ods_source_has_no_upstream():
     """ODS 源表无表级上游（直接从 CSV 落库），upstream 返回空。"""
     l = Lineage()

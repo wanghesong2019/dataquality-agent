@@ -86,7 +86,7 @@ def _dist_drift(conn, table: str, cat_col: str, date_col: str,
     cur = _cat_dist(conn, table, cat_col, date_col, latest)
     if sum(cur.values()) < min_count:
         return []  # 最新一天样本太少，无法判断分布漂移（防小样本误报）
-    exp = _cat_dist(conn, table, cat_col, date_col, None)
+    exp = _cat_dist(conn, table, cat_col, date_col, None) # exp大约有类似期待的意思
     score = psi(cur, exp)
     if score > threshold:
         return [Anomaly(
@@ -133,10 +133,14 @@ def schema_diff(prev: dict, curr: dict) -> list[str]:
 
 def detect_lineage_break(watermarks: dict[str, str], lineage: Lineage,
                          max_lag_days: int = 1) -> list[Anomaly]:
-    """血缘断裂：下游表更新水位线落后其任一上游超过 max_lag_days 则报。"""
+    """血缘断裂：下游表水位线落后其构建上游超过 max_lag_days 则报。
+
+    只查构建血缘（build_upstream），不查 FK 依赖——FK 边（order_items→orders 等）是引用关系，
+    最新订单可能还没订单项/评价，是自然现象不是停更，查了会误报。
+    """
     anomalies: list[Anomaly] = []
     for table, wm in watermarks.items():
-        for upstream in lineage.upstream(table):
+        for upstream in lineage.build_upstream(table):
             up_wm = watermarks.get(upstream)
             if up_wm is None:
                 continue

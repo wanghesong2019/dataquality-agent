@@ -362,6 +362,8 @@
 **本项目怎么答**：
 > 检测三层现在齐全：L0 规则断言（`detection/rules.py`，0-LLM）、L1 统计（`detection/stats.py`：血缘断裂/停更/schema 漂移/**volume(z-score)/distribution(PSI)**）、L2 LLM 语义（`detection/semantic.py`：采样 DWD 表让 LLM 找规则/统计抓不到的语义异常，`semantic_model` 缺省跳过）。分层逻辑：确定性优先、LLM 兜底——规则最快最可解释，统计学历史基线，LLM 只兜底语义层。
 
+> **L2 语义检测（已优化，2026-10-23）**：`detection/semantic.py` 的 `run_semantic_checks` 从「取前 3 行」改成「固定大小的列画像」（cardinality / null 率 / min-max / 示例值，token 成本不随行数增长）+ 数据字典（`TABLE_CODECS`，字段含义 + 合法取值域，材料来自 warehouse.py 字段注释）+ "Fail if" 失败用例。L2 仍是兜底层、不进 eval（`semantic_model` 缺省跳过），属加分项。
+
 ### 展开精讲：数仓分层为什么是「检测导向」而非「分析导向」？
 
 **一句话定调**：这个数仓（`data/warehouse.py`）不是标准星型模型，而是面向数据质量检测的「ODS → DWD → DWS」轻量分层——它要喂给三层检测（L0 规则 / L1 统计 / L2 语义），不是给 BI 出报表。
@@ -505,12 +507,14 @@
 | 3 | ~~DWS 补聚合~~ ✅ **已完成**：`seller_metrics`（GMV/单量/评分）、`category_metrics`（品类）、`payment_summary`（分期/支付方式）三张横截面聚合表；volume 从单指标(orders)扩成 orders+gmv、distribution 从单维(order_status)扩成 order_status+review_score，多基线落地，155 tests 全绿 | `data/warehouse.py` + `detection/stats.py` + `detection/runner.py` | "DWS 从一根独苗扩成 4 张聚合表，L1 volume/distribution 多基线" |
 | 4 | ~~跨表一致性检测~~ ✅ **已完成**：`check_amount_mismatch`/`check_state_conflict`/`check_zip_inconsistency` + `run_consistency_checks`，真实 Olist 检出 380 金额不一致 + 609 状态矛盾 + 8556 邮编矛盾；评测改 **baseline-aware**（真实问题从误报扣除，检测 F1 仍 1.0） | `detection/rules.py` + `eval/metrics.py` + `scripts/run_eval.py` | "检测在真实数据上抓到真实问题，评测口径诚实" |
 | 5 | ~~孤儿外键扩展~~ ✅ **已完成**：`check_orphan` 铺满 order_items→products/sellers、payments→orders、reviews→orders、orders→customers（真实 Olist 全 0，注入才触发）；orphan 注入改删叶子父表 products 避免爆炸半径 | `detection/rules.py` + `scripts/run_eval.py` | "FK 网全铺，注入口径与 ground-truth 对齐" |
-| 6 | ~~血缘做实~~ ✅ **已完成**：`lineage.py` 分两类边——FK 依赖（归因溯源用，保留）+ 构建血缘（ODS→DWD→DWS，8 DWD + 4 DWS 边全对齐 warehouse.py）；`Lineage.upstream("seller_metrics")` 能答出源头 | `data/lineage.py` | "血缘和真实 DWD/DWS 对齐，可回答'这字段源头在哪'" |
+| 6 | ~~血缘做实~~ ✅ **已完成**：`lineage.py` 分两类边——FK 依赖（归因溯源）+ 构建血缘（ODS→DWD→DWS 全对齐）；`detect_lineage_break` 用 `build_upstream()` 只查构建血缘、不查 FK 依赖（FK 边是引用关系，最新订单可能没订单项/评价是自然现象不是停更）；`_watermarks` 只算 orders + daily_metrics 是**有意为之**（只有它们有独立日期轴） | `data/lineage.py` + `detection/runner.py` + `detection/stats.py` | "血缘图 + 构建检测对齐，FK 依赖与日期水位线两个语义分开" |
 | 7 | ~~注入器扩展~~ ✅ **已完成**：`inject_amount_mismatch`/`inject_state_conflict`/`inject_zip_inconsistency` + ROOT_CAUSE_CATEGORY 对齐，123 tests 全绿。注：这三类是 **always-on**（真实数据基线就命中），注入 F1 平凡（=1.0），其「证明」靠真实基线（380/609/8556）而非注入 F1 | `data/injector.py` | "注入器覆盖全检测类型；always-on 检测靠真实基线证明" |
 
 **验证**：`pytest` 全绿 + `run_eval.py` 复跑，同步更新简历/文档里的数字（F1 / 归因 / 整改 / 端到端 / token）。
 
 > **去 demo 味的真解药是"小而完整 + 可复现"，不是堆体量**：面试官不在乎 100 万行 vs 1 亿行（DuckDB 都能跑），在乎"数仓模型像不像真的、检测能不能抓到真实问题类别"。"单机 DuckDB + Olist、评测可复现、面试可当场演示"本身是**优势**，前提是 9 表星型模型真跑起来、而非 2 表。
+
+> **血缘/停更检测的日期轴边界（2026-10-23 澄清）**：`_watermarks` 只算 orders + daily_metrics 两张表是**有意为之**——「数据停更」只对「有独立日期轴、数据更新不依赖 FK」的表有意义。order_items/reviews 的「最新数据」跟着 orders 走（最新订单可能还没订单项/评价，是自然现象），拿它们 join 的下单日期去比 latest 订单日期会必然误报「停更」（实测如此）；seller_metrics 等 DWS 聚合表无日期轴。已做：`lineage.py` 拆分 `build_upstream()`（仅构建血缘），`detect_lineage_break` 只查构建血缘、不查 FK 依赖——把「数据依赖（FK）」和「日期水位线（构建）」两个语义分开了。
 
 **来源**：用户 2026-10-21 数据层复盘（"demo 味 / 高射炮打蚊子"）+ 代码核对（warehouse.py / lineage.py / detection 表引用统计：orders×6、dwd_orders×5、daily_metrics×4、dwd_order_items×1，其余 0）。
 

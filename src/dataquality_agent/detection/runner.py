@@ -19,7 +19,14 @@ class DetectionReport:
 
 
 def _watermarks(conn) -> dict[str, str]:
-    """每表更新水位线（最新数据日期），供血缘断裂检测。"""
+    """每表更新水位线（最新数据日期），供血缘断裂/停更检测。
+
+    只算 orders + daily_metrics 两张表，因为它们有独立的「下单日期」轴、数据更新不依赖 FK：
+    - order_items/reviews 的「最新数据」跟着 orders 走（最新订单可能还没订单项/评价，是自然现象），
+      拿它们 join 出的下单日期去比 latest 订单日期会必然误报「停更」（实测如此）；
+    - seller_metrics/category_metrics/payment_summary 是横截面聚合、无日期轴，无法算水位线。
+    所以「数据停更」只对 orders/daily_metrics 这种有独立日期轴的表有意义。
+    """
     wm: dict[str, str] = {}
     row = conn.execute("SELECT MAX(order_purchase_timestamp::DATE) FROM dwd_orders").fetchone()
     if row[0] is not None:
