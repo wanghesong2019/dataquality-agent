@@ -39,6 +39,13 @@ INJECTION_SPECS = [
     {"type": "value_range", "table": "order_items", "column": "price", "key_cols": ["order_id", "order_item_id"], "n": 3},
     {"type": "null_rate", "table": "orders", "column": "order_delivered_customer_date",
      "status_col": "order_status", "status_value": "delivered", "key_cols": ["order_id"], "n": 6000},
+    # Tier 1 新增：injector 已有方法 + 检测已有，补 L1 端到端 F1 + FK 网覆盖。
+    # 注：amount/state/zip 三类是 always-on（真实数据自带，注入 F1 平凡），不注入；
+    #     freshness 与 lineage_break 都动水位线、会互相干扰，本轮先注入 lineage_break，freshness 单独测。
+    {"type": "orphan", "child_table": "order_items", "parent_table": "sellers",
+     "parent_pk": "seller_id", "child_fk": "seller_id", "n": 20},
+    {"type": "lineage_break", "table": "daily_metrics", "date_col": "order_date", "n": 2},
+    {"type": "schema_drift", "table": "dwd_orders", "drop_column": "order_approved_at"},
 ]
 
 

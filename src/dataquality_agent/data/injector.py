@@ -240,6 +240,17 @@ class Injector:
                 gt.injections.append(
                     self.inject_lineage_break(conn, spec["table"], spec["date_col"], spec.get("n", 1))
                 )
+                # 语义重叠：删下游表最近 n 天，同时造成「落后上游」（lineage_break）和
+                # 「落后当前日期」（freshness）——两个口径对同一事实的不同视角，都是正确检测。
+                # ground-truth 同时标注 freshness，避免把正确的 freshness 检测误判成 FP。
+                gt.injections.append(InjectedAnomaly(
+                    type="freshness",
+                    table=spec["table"],
+                    column=spec["date_col"],
+                    root_cause=f"{spec['table']} 停更（语义重叠于 lineage_break）",
+                    root_cause_category=ROOT_CAUSE_CATEGORY["freshness"],
+                    location=f"recent {spec.get('n', 1)} days deleted from {spec['table']}",
+                ))
             elif t == "freshness":
                 gt.injections.append(
                     self.inject_freshness(conn, spec["table"], spec["date_col"], spec.get("n", 1))
