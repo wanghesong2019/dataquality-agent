@@ -9,9 +9,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from dataquality_agent.agents.diagnose import make_diagnose_node
+from dataquality_agent.agents.diagnose import make_aggregate_diagnose_node
 from dataquality_agent.agents.remediate import make_remediate_node
-from dataquality_agent.agents.tooling import build_diagnose_tools
+from dataquality_agent.agents.specialists import make_cases_agent, make_lineage_agent, make_sql_agent
+from dataquality_agent.agents.supervisor import make_triage_node
 from dataquality_agent.config import Settings, load_env
 from dataquality_agent.data.injector import Injector
 from dataquality_agent.data.lineage import Lineage
@@ -39,6 +40,23 @@ INJECTION_SPECS = [
     {"type": "null_rate", "table": "orders", "column": "order_delivered_customer_date",
      "status_col": "order_status", "status_value": "delivered", "key_cols": ["order_id"], "n": 6000},
 ]
+
+
+def _supervisor_diagnose(adapter, diagnose_targets, eval_conn, retriever) -> list:
+    """Supervisor 版归因：分诊 + 3 专职 Agent（各处理分给自己的子集）+ 聚合。"""
+    triage = make_triage_node(adapter)
+    lineage_agent = make_lineage_agent(adapter, Lineage())
+    sql_agent = make_sql_agent(adapter, eval_conn)
+    cases_agent = make_cases_agent(adapter, retriever)
+    aggregate = make_aggregate_diagnose_node(adapter)
+
+    state = {"anomalies": diagnose_targets}
+    state.update(triage(state))
+    state.update(lineage_agent(state))
+    state.update(sql_agent(state))
+    state.update(cases_agent(state))
+    return aggregate(state)["diagnoses"]
+
 
 def main() -> None:
     load_env(ROOT / ".env")
@@ -69,11 +87,11 @@ def main() -> None:
     inj_keys = {(i.type, i.table) for i in injected}
     diagnose_targets = [a for a in detected_before if (a.type, a.table) in inj_keys]
 
-    # 4) 归因 + 整改（DeepSeek function calling）——只处理注入目标
+    # 4) 归因（Supervisor 分诊 + 3 专职 Agent + 聚合）+ 整改（DeepSeek function calling）
     tracer = Tracer()
     adapter = LLMAdapter(DeepSeekClient(temperature=0), tracer=tracer)
-    tools = build_diagnose_tools(eval_conn, Lineage(), build_retriever(), tracer=tracer)
-    diagnoses = make_diagnose_node(adapter, tools)({"anomalies": diagnose_targets})["diagnoses"]
+    retriever = build_retriever()
+    diagnoses = _supervisor_diagnose(adapter, diagnose_targets, eval_conn, retriever)
     remediations = make_remediate_node(adapter, eval_conn)(
         {"anomalies": diagnose_targets, "diagnoses": diagnoses})["remediations"]
 
