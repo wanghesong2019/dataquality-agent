@@ -8,20 +8,34 @@
 ②「风险分级」——靠 Remediation.requires_approval 这个派生属性，把 risk_level == "high"
 翻译成"需要人工审批"，下游据此分流。
 
-两行代码的含义
---------------
-tools=[SUBMIT_REMEDIATION_SCHEMA] —— 告诉模型"你有这个工具"。SUBMIT_REMEDIATION_SCHEMA
-定义在 prompts.py:42-49，其中 parameters = Remediation.model_json_schema()（prompts.py:47）
-把 Pydantic 模型 Remediation 的四个字段（action_type / sql_or_suggestion / risk_level /
-anomaly_id，models.py:29-35）自动转成 JSON Schema。所以这一行在说："你有一个工具叫
-submit_remediation，要调用它就必须填这 4 个字段。" 模型看到 schema 后，输出不再是自由
-文本，而是被约束成这组命名字段——这就是"结构化"的来源。
+两行代码的含义：能力边界定义 vs 执行策略控制
+--------------------------------------------
+这两行是 Tool Calling 机制里两个不同层面的约束——一个管「参数长什么样」，一个管「要不要调用」。
 
-tool_choice={"type": "function", "function": {"name": "submit_remediation"}} —— 逼模型
-"只能用这个工具"。这是 OpenAI 兼容协议里的强制选工具语法：模型只能调用
-submit_remediation，不能回纯文本、不能调别的工具、也不能选择不调。没有这行时，模型
-可能回一句自然语言；有了这行，返回的 tool_calls 里必定是 submit_remediation。这就是
-"强制"的落点。
+一、tools=[SUBMIT_REMEDIATION_SCHEMA] —— 能力边界定义（结构化输出的语法约束）
+SUBMIT_REMEDIATION_SCHEMA 定义在 prompts.py，其中 parameters = Remediation.model_json_schema()
+把 Pydantic 的 4 个字段（action_type / sql_or_suggestion / risk_level / anomaly_id，models.py）自动
+转成 JSON Schema——"你有一个工具叫 submit_remediation，调用它必须填这 4 个字段"。它只解决
+"输出格式对不对"，背后三层原理：
+1. 上下文注入：Schema 被序列化成 JSON Schema 拼进系统消息，模型生成时把它当"必须遵守的语法规则"。
+2. 受控解码（核心）：现代推理引擎（vLLM/SGLang/llama.cpp）支持基于 JSON Schema 的约束采样——
+   每生成一个 Token，引擎根据已生成的 JSON 结构 + 预定义 Schema 动态计算下一个合法 Token 的
+   概率掩码，非法 Token 概率强制置 0，在解码层面保证输出 100% 符合 Schema（不是事后校验）。
+3. 后处理兜底：引擎不支持受控解码或模型突破约束时，服务端做 JSON 解析 + Schema 验证，失败则
+   重试/报错/返回默认——这是防御性兜底，不是首选。
+
+二、tool_choice={"type": "function", "function": {"name": "submit_remediation"}} —— 执行策略控制（行为模式的强制路由）
+它强制模型唯一输出 submit_remediation——"只能用这个工具，不能回纯文本、不能调别的工具、也不能
+选择不调"。它只解决"要不要调用、调用谁"，与 Schema 无关，背后三点：
+1. 系统指令覆盖：API 内部把默认的 auto（模型自主判断）替换成强制指令——"你必须调用
+   submit_remediation，不得直接回复文本"。
+2. Logit Bias / Token Masking：推理引擎对 submit_remediation 相关 Token 施加极大正 bias（几乎
+   必选），同时压低普通文本 Token 的概率，防止模型"跳过"工具直接聊天。
+3. 绕过意图识别：auto 模式下模型要先做"是否需要工具"的分类；tool_choice 指定后直接跳过这一步，
+   把工具调用变成唯一合法输出路径——本质是把开放式生成降级成受限的槽位填充。
+
+一句话：tools 管"输出格式对不对"（能力边界），tool_choice 管"要不要调用、调用谁"（执行策略），
+两者正交——即使 Schema 有误，只要 tool_choice 指定了函数名，模型仍会尝试调用（只是参数可能不合法）。
 
 数据流串起来
 ------------

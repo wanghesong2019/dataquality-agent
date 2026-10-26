@@ -59,7 +59,15 @@ TABLE_CODECS = {
 
 
 def _parse_findings(resp: dict) -> list[dict]:
-    """从 assistant message 取 submit_semantic_findings 参数；解析失败降级空列表。"""
+    """从 assistant 的 tool_calls 里取 submit_semantic_findings 的实参；解析失败降级空列表。
+
+    为什么读 `call["function"]["arguments"]` 而不是 schema 里的键：发给模型的 tools 是
+    SUBMIT_FINDINGS_SCHEMA，里面是 `parameters`（描述「参数应该长什么样」的 JSON Schema）；
+    模型真调工具时，响应 tool_calls 里的 `function.arguments` 是它按 parameters 填出来的
+    **实参 JSON 字符串**（如 '{"findings": [...]}'）。arguments 是「响应格式」的字段，不是
+    schema 里的键——两者在 API 的两侧：schema 是发给模型的约束，arguments 是模型回传的实参。
+    所以 json.loads(arguments) 拿到实参 dict，再取 findings。
+    """
     for call in resp.get("tool_calls", []):
         if call.get("function", {}).get("name") == "submit_semantic_findings":
             try:
@@ -72,7 +80,9 @@ def _parse_findings(resp: dict) -> list[dict]:
 def _column_profile(conn, table: str, cols: list[tuple[str, str]]) -> dict:
     """固定大小的列画像：cardinality / null 率 / min-max / 示例值。
 
-    每列只有固定几个数字 + 最多 5 个示例值，token 成本不随行数增长（替代「取前 N 行」的原始行采样）。
+    每列只有固定几个数字 + 最多 5 个随机示例值，token 成本不随行数增长（替代「取前 N 行」的原始行采样）。
+    cardinality/null 率/min-max 是全表聚合（非采样）；示例值是随机 5 个 distinct 值
+    （ORDER BY random()，不是前 5 个，避免偏向最早数据）。
     """
     profile: dict = {}
     for col_name, col_type in cols:
@@ -82,7 +92,7 @@ def _column_profile(conn, table: str, cols: list[tuple[str, str]]) -> dict:
         ).fetchone()
         total, cardinality, null_cnt, min_v, max_v = row
         exemplars = [r[0] for r in conn.execute(
-            f"SELECT DISTINCT {col_name} FROM {table} LIMIT 5"
+            f"SELECT DISTINCT {col_name} FROM {table} ORDER BY random() LIMIT 5"
         ).fetchall()]
         profile[col_name] = {
             "type": col_type,

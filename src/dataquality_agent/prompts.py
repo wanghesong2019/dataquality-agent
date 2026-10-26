@@ -152,7 +152,8 @@ def build_specialist_prompt(anomaly) -> str:
 
 
 # ---- Supervisor 分诊（§13）----
-
+# assignments 是模型需输出的核心字段：必须是 array，元素必须来自 enum ["lineage", "sql", "cases"]
+# （受控解码保证非法值不出现在输出里）；required 是 JSON Schema 的强制校验，逼模型必须产出 assignments。
 SUBMIT_TRIAGE_SCHEMA = {
     "type": "function",
     "function": {

@@ -478,6 +478,33 @@
 
 **诚实边界**：分诊的价值是「质量持平（归因 0.75）+ 职责清晰 + token 降 12~14 倍」，不是「归因正确率提升」。
 
+**图怎么落地到代码（节点 → 文件 → 融合机制）**：目标图那条链 = `agents/graph.py::build_supervisor_graph` 的 `add_node`/`add_edge` 顺序（graph.py:32-61），9 个节点逐一对到文件：
+
+| 链上名字 | 文件 / 函数 | 干什么 |
+|---------|------------|--------|
+| `inspect` | `agents/inspect.py` | 规则/统计/语义检测（L0/L1/L2），产出 `anomalies` |
+| `triage` | `agents/supervisor.py` `make_triage_node` | **分诊**：给每个异常指派一个专职 Agent |
+| `lineage` | `agents/specialists.py` `make_lineage_agent` | 血缘归因专职 Agent |
+| `sql` | `agents/specialists.py` `make_sql_agent` | SQL 排查专职 Agent |
+| `cases` | `agents/specialists.py` `make_cases_agent` | 案例检索专职 Agent |
+| `diagnose` | `agents/diagnose.py` `make_aggregate_diagnose_node` | 聚合：finding → Diagnosis |
+| `remediate` | `agents/remediate.py` | Executor+Critic 整改 |
+| `approve` | `agents/hitl.py` | 高危人工审批（条件路由，非必经） |
+| `report` | `agents/report.py` | 出报告 |
+
+- **`supervisor.py` = 分诊员，不调查**：只产出 `assignments` 列表（`["lineage","sql","cases",...]`，与 `anomalies` 逐位对齐，语义=「第 i 个异常交给谁」），并初始化 `findings` 为全空。三道兜底（supervisor.py:38-51）：① `_llm_triage` 调 LLM 用 `submit_triage` 工具返回 assignments；② `_default_assignment` 确定性映射（orphan/lineage_break/freshness → lineage，其余 → sql）；③ 非法值落兜底。
+- **`specialists.py` = 3 个专职 Agent，同一工厂造**：`_make_specialist`（specialists.py:50-67）只换名字/工具/提示词。融合机制就一行——每个专职节点只处理「分派给自己」的下标：
+
+  ```python
+  for i, a in enumerate(anomalies):
+      if i < len(assignments) and assignments[i] == name:
+          findings[i] = _investigate(a, model, tools, system_prompt, max_steps, tracer)
+  ```
+
+  所以图里 `triage → lineage → sql → cases` 是**串行**跑的，但靠 `assignments[i] == name` 过滤，**每个异常只被它被指派的那个专职 Agent 调查一次**，另外两个节点对它是 no-op。例：3 个异常分诊成 `["lineage","sql","cases"]` → lineage 节点只查第 0 个、sql 只查第 1 个、cases 只查第 2 个 → `diagnose` 聚合节点读三个 `findings` 逐个 `submit_diagnosis` 收敛成 Diagnosis。
+
+- **为什么这样拆**：对照单图版 `build_graph`（1 个 ReAct 带 4 工具自由探索）→ Supervisor 版（1 分诊员 + 3 单工具专职 Agent + 1 聚合诊断）。动机 = 分诊让「每个异常只跑 1 个专职 Agent」而非「每个异常跑全部 3 个」（token 65-75 万 → ~5 万）。专职 Agent 工具集更窄 → 探索空间更小 → 更聚焦、更快收敛、且每个 Agent 单独可测。
+
 ### 简历怎么呈现（一个项目，两代演进）
 
 **不拆成两个项目**——同一个业务换个架构写两遍 = 注水，必被识破。写成两代演进并主动讲"为什么改"：
