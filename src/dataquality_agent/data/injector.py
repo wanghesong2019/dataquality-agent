@@ -19,6 +19,8 @@ ROOT_CAUSE_CATEGORY = {
     "amount_mismatch": "脏数据注入",    # 支付金额被改偏 → 支付与明细对不上
     "state_conflict": "脏数据注入",     # 状态与评价矛盾（已取消却有评价）
     "zip_inconsistency": "脏数据注入",  # 邮编映射到多个城市
+    "time_inversion": "ETL逻辑变更",    # 交付日期早于下单（时间字段处理错误）
+    "future_date": "脏数据注入",        # 时间戳超出数据采集范围（录入错误）
 }
 
 
@@ -156,6 +158,39 @@ class Injector:
             location=f"column {drop_column} dropped from {table}",
         )
 
+    def inject_time_inversion(self, conn, n: int = 3) -> InjectedAnomaly:
+        """把 n 个 delivered 订单的交付日期改到下单之前，制造时间倒挂。"""
+        orders = conn.execute(
+            "SELECT order_id FROM orders WHERE order_status = 'delivered' "
+            "AND order_delivered_customer_date IS NOT NULL LIMIT ?", [n]
+        ).fetchall()
+        for (order_id,) in orders:
+            conn.execute(
+                "UPDATE orders SET order_delivered_customer_date = order_purchase_timestamp - INTERVAL 5 DAY "
+                "WHERE order_id = ?", [order_id]
+            )
+        return InjectedAnomaly(
+            type="time_inversion", table="orders", column="order_delivered_customer_date",
+            root_cause=f"{len(orders)} rows delivered date set before purchase",
+            root_cause_category=ROOT_CAUSE_CATEGORY["time_inversion"],
+            location=f"{len(orders)} rows time-inverted in orders",
+        )
+
+    def inject_future_date(self, conn, n: int = 3) -> InjectedAnomaly:
+        """把 n 个订单的下单时间戳改到 2020（超出 Olist 采集范围），制造未来日期。"""
+        orders = conn.execute("SELECT order_id FROM orders LIMIT ?", [n]).fetchall()
+        for (order_id,) in orders:
+            conn.execute(
+                "UPDATE orders SET order_purchase_timestamp = DATE '2020-01-01' WHERE order_id = ?",
+                [order_id]
+            )
+        return InjectedAnomaly(
+            type="future_date", table="orders", column="order_purchase_timestamp",
+            root_cause=f"{len(orders)} rows order_purchase_timestamp set to 2020",
+            root_cause_category=ROOT_CAUSE_CATEGORY["future_date"],
+            location=f"{len(orders)} rows set to future date",
+        )
+
     def inject_amount_mismatch(self, conn, n: int = 1, delta: float = 100.0) -> InjectedAnomaly:
         """把 n 个订单的支付金额整体改偏 delta，制造「支付总额 vs 明细总额」不一致。"""
         orders = conn.execute(
@@ -269,6 +304,10 @@ class Injector:
                 gt.injections.append(self.inject_state_conflict(conn, spec.get("n", 1)))
             elif t == "zip_inconsistency":
                 gt.injections.append(self.inject_zip_inconsistency(conn, spec.get("n", 1)))
+            elif t == "time_inversion":
+                gt.injections.append(self.inject_time_inversion(conn, spec.get("n", 1)))
+            elif t == "future_date":
+                gt.injections.append(self.inject_future_date(conn, spec.get("n", 1)))
             else:
                 raise ValueError(f"unknown injection type: {t}")
         return gt

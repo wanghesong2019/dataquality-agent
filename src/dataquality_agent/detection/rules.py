@@ -46,6 +46,31 @@ def check_value_range(conn, table: str, column: str, min_val=None, max_val=None)
     return []
 
 
+def check_time_inversion(conn) -> list[Anomaly]:
+    """时间倒挂：交付日期早于下单日期（delivered < purchase），逻辑矛盾。"""
+    n = conn.execute(
+        "SELECT COUNT(*) FROM orders WHERE order_delivered_customer_date IS NOT NULL "
+        "AND order_delivered_customer_date < order_purchase_timestamp"
+    ).fetchone()[0]
+    if n > 0:
+        return [Anomaly(type="time_inversion", table="orders",
+                        column="order_delivered_customer_date",
+                        evidence=f"{n} 行交付日期早于下单日期", metric_value=n)]
+    return []
+
+
+def check_future_date(conn, max_date: str = "2018-12-31") -> list[Anomaly]:
+    """未来日期：下单时间戳超出数据采集范围（Olist 止于 2018，超 max_date 判异常）。"""
+    n = conn.execute(
+        f"SELECT COUNT(*) FROM orders WHERE order_purchase_timestamp > DATE '{max_date}'"
+    ).fetchone()[0]
+    if n > 0:
+        return [Anomaly(type="future_date", table="orders",
+                        column="order_purchase_timestamp",
+                        evidence=f"{n} 行下单时间戳超出 {max_date}", metric_value=n)]
+    return []
+
+
 def check_null_rate(conn, table: str, column: str, status_col: str | None = None,
                     status_value: str | None = None, threshold: float = 0.05) -> list[Anomaly]:
     """空值检查——可 status 分层（status_col 给定），也可全表（status_col=None）。"""
@@ -82,6 +107,9 @@ def run_rule_checks(conn) -> list[Anomaly]:
     anomalies += check_null_rate(conn, "orders", "order_delivered_customer_date", "order_status", "delivered", 0.05)
     # 关键外键不应为空（全表检查，无 status 分层）
     anomalies += check_null_rate(conn, "orders", "customer_id", threshold=0.0)
+    # 时间逻辑：交付早于下单（倒挂）+ 下单时间超出采集范围（未来日期）
+    anomalies += check_time_inversion(conn)
+    anomalies += check_future_date(conn)
     return anomalies
 
 

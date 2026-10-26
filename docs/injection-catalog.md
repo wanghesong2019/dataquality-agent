@@ -92,6 +92,9 @@
   - 归因 0.857、整改 0.583、端到端 0.5、token 35万
   - ✅ 修复：null customer_id 注入触发 orders→customers 孤儿（NULL 外键被当 orphan）→ check_orphan 加 `IS NOT NULL`，orphan F1 从 0.667 → 1.0
   - 发现：Tier 2 的 duplicate/value_range/null 是"脏数据注入"（比 L1 更易归因+更可逆），把归因(0.75→0.857)和整改(0.286→0.583)都拉高了
-- [ ] Tier 3：新 L0 规则（时间倒挂 / 未来日期）
+- [x] **Tier 3**：时间倒挂 + 未来日期（新 L0 规则 `check_time_inversion`/`check_future_date` + 新注入方法）
+  - 结果：检测 P=1.0 / R=1.0 / F1=1.0（16 类型全 F1=1.0）
+  - 归因 0.75（16 类型，归因错 4）、整改 0.571（time_inversion 可逆，数据丢失成功 0.0→0.143）、端到端 0.438
+  - 发现：时间倒挂/未来日期根因（ETL逻辑变更/脏数据注入）从症状看都是"数据错了"，比纯脏数据更难归因，归因 0.857→0.75
 - [ ] Tier 4：L1 volume/distribution 注入方法
 - [ ] 数据飞轮：eval 结果 → cases 库回流

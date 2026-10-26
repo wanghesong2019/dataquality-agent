@@ -53,6 +53,9 @@ INJECTION_SPECS = [
     {"type": "value_range", "table": "payments", "column": "payment_installments", "key_cols": ["order_id", "payment_sequential"], "n": 3, "bad_value": 0},
     {"type": "value_range", "table": "products", "column": "product_weight_g", "key_cols": ["product_id"], "n": 3, "bad_value": -5.0},
     {"type": "null_rate", "table": "orders", "column": "customer_id", "key_cols": ["order_id"], "n": 20},
+    # Tier 3 新增：时间倒挂 + 未来日期（新 L0 规则 + 新注入方法）
+    {"type": "time_inversion", "n": 3},
+    {"type": "future_date", "n": 3},
 ]
 
 
