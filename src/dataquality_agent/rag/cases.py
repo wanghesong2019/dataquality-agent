@@ -4,6 +4,9 @@
 沉淀成案例库，替代手写 demo。每类一条 (type, table, column, 异常描述, 根因类别, 整改)。
 根因类别对齐 injector.py 的 ROOT_CAUSE_CATEGORY。
 """
+import json
+from pathlib import Path
+
 from dataquality_agent.rag.embedder import build_embedder
 from dataquality_agent.rag.retriever import Retriever
 from dataquality_agent.rag.tokenizer import tokenize
@@ -23,12 +26,32 @@ INJECTION_CASES = [
 ]
 
 
+FLYWHEEL_CASES_PATH = Path(__file__).resolve().parents[3] / "data" / "flywheel_cases.json"
+
+
+def load_flywheel_cases(path: Path = FLYWHEEL_CASES_PATH) -> list[dict]:
+    """读数据飞轮回流的历史案例（eval 结果沉淀）。不存在则空。"""
+    if Path(path).exists():
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    return []
+
+
+def persist_flywheel_cases(cases: list[dict], path: Path = FLYWHEEL_CASES_PATH) -> None:
+    """把 eval 结果回流成案例，落盘 JSON（数据飞轮的写入侧）。"""
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).write_text(json.dumps(cases, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def _build_cases() -> list[dict]:
-    """把注入异常回填成案例：id = type_table，text = table.column 异常描述 + 根因 + 整改。"""
-    return [
+    """案例库 = 静态注入案例 + 数据飞轮回流案例（同 id 用飞轮更新版覆盖）。"""
+    static = [
         {"id": f"{typ}_{table}", "text": f"{table} {column} {desc}，根因{category}，整改{remedy}"}
         for typ, table, column, desc, category, remedy in INJECTION_CASES
     ]
+    merged = {c["id"]: c for c in static}
+    for c in load_flywheel_cases():
+        merged[c["id"]] = c
+    return list(merged.values())
 
 
 CASES = _build_cases()

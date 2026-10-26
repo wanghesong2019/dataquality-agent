@@ -25,7 +25,7 @@ from dataquality_agent.eval.harness import (
 )
 from dataquality_agent.llm import DeepSeekClient, LLMAdapter
 from dataquality_agent.observability.tracing import Tracer
-from dataquality_agent.rag.cases import build_retriever
+from dataquality_agent.rag.cases import build_retriever, persist_flywheel_cases
 
 
 # 注入计划：可逆（duplicate/value_range）+ 数据丢失（orphan/null_rate），n 按真实数据量定。
@@ -56,6 +56,9 @@ INJECTION_SPECS = [
     # Tier 3 新增：时间倒挂 + 未来日期（新 L0 规则 + 新注入方法）
     {"type": "time_inversion", "n": 3},
     {"type": "future_date", "n": 3},
+    # 注：volume/distribution 注入方法已实现（inject_volume_spike/inject_distribution_drift），
+    # 但 Olist 数据长尾（最新一天仅 1 单、基线 std=0）使 z-score/PSI 检测在"最新一天"口径下退化，
+    # 无法端到端触发——留作诚实边界，不纳入 INJECTION_SPECS（改滑动窗口口径后可再启用）。
 ]
 
 
@@ -120,6 +123,16 @@ def main() -> None:
                       detection_report.stats, adapter.cost_ledger, llm_seconds=tracer.root_duration(),
                       baseline=baseline, detected_all=detected_before)
     by_rev = remediation_success_by_reversibility(diagnose_targets, detected_after, injected)
+
+    # 数据飞轮写入侧：注入异常 → 案例回流（含 ground-truth 根因类别）
+    flywheel_cases = [
+        {"id": f"{inj.type}_{inj.table}",
+         "text": f"{inj.table} {inj.column or '-'} 异常，根因{inj.root_cause_category}",
+         "type": inj.type, "root_cause": inj.root_cause_category}
+        for inj in injected
+    ]
+    persist_flywheel_cases(flywheel_cases)
+    print(f"[flywheel] {len(flywheel_cases)} 条注入异常已回流案例库")
 
     print("=" * 64)
     print(f"检测 P/R/F1：P={report.detection.precision:.3f} R={report.detection.recall:.3f} F1={report.detection.f1:.3f}")

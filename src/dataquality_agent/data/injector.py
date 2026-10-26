@@ -21,6 +21,8 @@ ROOT_CAUSE_CATEGORY = {
     "zip_inconsistency": "脏数据注入",  # 邮编映射到多个城市
     "time_inversion": "ETL逻辑变更",    # 交付日期早于下单（时间字段处理错误）
     "future_date": "脏数据注入",        # 时间戳超出数据采集范围（录入错误）
+    "volume": "业务真实波动(非异常)",    # 日订单量突刺可能是真实业务波动
+    "distribution": "数据倾斜",         # 状态分布漂移
 }
 
 
@@ -191,6 +193,35 @@ class Injector:
             location=f"{len(orders)} rows set to future date",
         )
 
+    def inject_volume_spike(self, conn, metric: str = "orders", multiplier: float = 10.0) -> InjectedAnomaly:
+        """把 daily_metrics 最新一天的指标放大 multiplier 倍，制造 volume 突刺（z-score 超阈值）。"""
+        conn.execute(
+            f"UPDATE daily_metrics SET {metric} = {metric} * {multiplier} "
+            f"WHERE order_date = (SELECT MAX(order_date) FROM daily_metrics)"
+        )
+        return InjectedAnomaly(
+            type="volume", table="daily_metrics", column=metric,
+            root_cause=f"latest day {metric} spiked ×{multiplier}",
+            root_cause_category=ROOT_CAUSE_CATEGORY["volume"],
+            location=f"latest daily_metrics.{metric} multiplied by {multiplier}",
+        )
+
+    def inject_distribution_drift(self, conn, table: str = "dwd_orders",
+                                  cat_col: str = "order_status",
+                                  date_col: str = "order_purchase_timestamp",
+                                  bad_value: str = "canceled") -> InjectedAnomaly:
+        """把最新一天某分类列的值全改成 bad_value，制造分布漂移（PSI 超阈值）。"""
+        conn.execute(
+            f"UPDATE {table} SET {cat_col} = '{bad_value}' "
+            f"WHERE {date_col}::DATE = (SELECT MAX({date_col}::DATE) FROM {table})"
+        )
+        return InjectedAnomaly(
+            type="distribution", table=table, column=cat_col,
+            root_cause=f"latest day {cat_col} drifted to {bad_value}",
+            root_cause_category=ROOT_CAUSE_CATEGORY["distribution"],
+            location=f"latest {table}.{cat_col} set to {bad_value}",
+        )
+
     def inject_amount_mismatch(self, conn, n: int = 1, delta: float = 100.0) -> InjectedAnomaly:
         """把 n 个订单的支付金额整体改偏 delta，制造「支付总额 vs 明细总额」不一致。"""
         orders = conn.execute(
@@ -308,6 +339,12 @@ class Injector:
                 gt.injections.append(self.inject_time_inversion(conn, spec.get("n", 1)))
             elif t == "future_date":
                 gt.injections.append(self.inject_future_date(conn, spec.get("n", 1)))
+            elif t == "volume":
+                gt.injections.append(
+                    self.inject_volume_spike(conn, spec.get("metric", "orders"), spec.get("multiplier", 10.0))
+                )
+            elif t == "distribution":
+                gt.injections.append(self.inject_distribution_drift(conn))
             else:
                 raise ValueError(f"unknown injection type: {t}")
         return gt
