@@ -46,6 +46,13 @@ INJECTION_SPECS = [
      "parent_pk": "seller_id", "child_fk": "seller_id", "n": 20},
     {"type": "lineage_break", "table": "daily_metrics", "date_col": "order_date", "n": 2},
     {"type": "schema_drift", "table": "dwd_orders", "drop_column": "order_approved_at"},
+    # Tier 2 新增：扩 duplicate/value_range/null 到更多表列（检测规则 + 注入 spec 同步扩）
+    {"type": "duplicate", "table": "payments", "key_cols": ["order_id", "payment_sequential"], "n": 3},
+    {"type": "duplicate", "table": "reviews", "key_cols": ["review_id"], "n": 3},
+    {"type": "value_range", "table": "reviews", "column": "review_score", "key_cols": ["review_id"], "n": 3, "bad_value": 6},
+    {"type": "value_range", "table": "payments", "column": "payment_installments", "key_cols": ["order_id", "payment_sequential"], "n": 3, "bad_value": 0},
+    {"type": "value_range", "table": "products", "column": "product_weight_g", "key_cols": ["product_id"], "n": 3, "bad_value": -5.0},
+    {"type": "null_rate", "table": "orders", "column": "customer_id", "key_cols": ["order_id"], "n": 20},
 ]
 
 

@@ -13,9 +13,10 @@ def check_duplicate(conn, table: str, key_cols: list[str]) -> list[Anomaly]:
 
 
 def check_orphan(conn, child: str, parent: str, child_fk: str, parent_pk: str) -> list[Anomaly]:
+    # 口径：孤儿 = 非空外键但在父表找不到对应行；NULL 外键是「空值问题」（null_rate）不是「孤儿问题」，用 IS NOT NULL 排除。
     n = conn.execute(
         f"SELECT COUNT(*) FROM {child} c LEFT JOIN {parent} p ON c.{child_fk} = p.{parent_pk} "
-        f"WHERE p.{parent_pk} IS NULL"
+        f"WHERE p.{parent_pk} IS NULL AND c.{child_fk} IS NOT NULL"
     ).fetchone()[0]
     if n > 0:
         return [Anomaly(type="orphan", table=child, column=child_fk, evidence=f"{n} 行孤儿外键")]
@@ -29,21 +30,36 @@ def check_negative(conn, table: str, column: str) -> list[Anomaly]:
     return []
 
 
-def check_null_rate(conn, table: str, column: str, status_col: str,
-                    status_value: str, threshold: float) -> list[Anomaly]:
-    """空值检查——按 status 分层：只查某 status 组内的 null 率，避免业务正常 null 误报。"""
-    total = conn.execute(
-        f"SELECT COUNT(*) FROM {table} WHERE {status_col} = '{status_value}'"
-    ).fetchone()[0]
+def check_value_range(conn, table: str, column: str, min_val=None, max_val=None) -> list[Anomaly]:
+    """值域检查：column 不在 [min_val, max_val]（min/max 可 None 表示无界）。"""
+    conds = []
+    if min_val is not None:
+        conds.append(f"{column} < {min_val}")
+    if max_val is not None:
+        conds.append(f"{column} > {max_val}")
+    if not conds:
+        return []
+    n = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {' OR '.join(conds)}").fetchone()[0]
+    if n > 0:
+        return [Anomaly(type="value_range", table=table, column=column,
+                        evidence=f"{n} 行超出值域 [{min_val}, {max_val}]")]
+    return []
+
+
+def check_null_rate(conn, table: str, column: str, status_col: str | None = None,
+                    status_value: str | None = None, threshold: float = 0.05) -> list[Anomaly]:
+    """空值检查——可 status 分层（status_col 给定），也可全表（status_col=None）。"""
+    cond = f"{status_col} = '{status_value}'" if status_col else "1=1"
+    label = f"{status_value} 组" if status_col else "全表"
+    total = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {cond}").fetchone()[0]
     null_cnt = conn.execute(
-        f"SELECT COUNT(*) FROM {table} WHERE {status_col} = '{status_value}' "
-        f"AND {column} IS NULL"
+        f"SELECT COUNT(*) FROM {table} WHERE {cond} AND {column} IS NULL"
     ).fetchone()[0]
     if total > 0 and null_cnt / total > threshold:
         rate = null_cnt / total
         return [Anomaly(
             type="null_rate", table=table, column=column,
-            evidence=f"{status_value} 组 null 率 {rate:.0%} 超过阈值 {threshold:.0%}",
+            evidence=f"{label} null 率 {rate:.0%} 超过阈值 {threshold:.0%}",
             metric_value=round(rate, 4), expected_range=f"<= {threshold:.0%}",
         )]
     return []
@@ -54,11 +70,18 @@ def run_rule_checks(conn) -> list[Anomaly]:
     anomalies: list[Anomaly] = []
     anomalies += check_duplicate(conn, "orders", ["order_id"])
     anomalies += check_duplicate(conn, "order_items", ["order_id", "order_item_id"])
+    anomalies += check_duplicate(conn, "payments", ["order_id", "payment_sequential"])
+    anomalies += check_duplicate(conn, "reviews", ["review_id"])
     anomalies += check_orphan(conn, "order_items", "orders", "order_id", "order_id")
     anomalies += check_negative(conn, "order_items", "price")
     anomalies += check_negative(conn, "order_items", "freight_value")
+    anomalies += check_negative(conn, "products", "product_weight_g")
+    anomalies += check_value_range(conn, "reviews", "review_score", 1, 5)
+    anomalies += check_value_range(conn, "payments", "payment_installments", 1, 24)
     # 空值按 status 分层：delivered 订单的交付日期不应为空
     anomalies += check_null_rate(conn, "orders", "order_delivered_customer_date", "order_status", "delivered", 0.05)
+    # 关键外键不应为空（全表检查，无 status 分层）
+    anomalies += check_null_rate(conn, "orders", "customer_id", threshold=0.0)
     return anomalies
 
 

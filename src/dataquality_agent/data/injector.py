@@ -77,21 +77,23 @@ class Injector:
             location=f"{len(pks)} rows deleted from {parent_table}",
         )
 
-    def inject_null_rate(self, conn, table: str, column: str, status_col: str,
-                         status_value: str, key_cols: list[str], n: int = 1) -> InjectedAnomaly:
-        """把某 status 组内前 n 行 column 置 NULL，拉高该组 null 率（对应 L0 空值分层检测）。"""
+    def inject_null_rate(self, conn, table: str, column: str, status_col: str | None,
+                         status_value: str | None, key_cols: list[str], n: int = 1) -> InjectedAnomaly:
+        """把前 n 行 column 置 NULL，拉高 null 率。可 status 分层（status_col 给定），也可全表（None）。"""
+        cond = f"{status_col} = '{status_value}' AND " if status_col else ""
         keys = conn.execute(
             f"SELECT {', '.join(key_cols)} FROM {table} "
-            f"WHERE {status_col} = '{status_value}' AND {column} IS NOT NULL LIMIT {n}"
+            f"WHERE {cond}{column} IS NOT NULL LIMIT {n}"
         ).fetchall()
         for key in keys:
             where = " AND ".join(f"{c} = ?" for c in key_cols)
             conn.execute(f"UPDATE {table} SET {column} = NULL WHERE {where}", list(key))
+        label = f"{status_value} " if status_col else ""
         return InjectedAnomaly(
             type="null_rate",
             table=table,
             column=column,
-            root_cause=f"{column} nulled for {status_value} {table} (data entry error)",
+            root_cause=f"{column} nulled for {label}{table} (data entry error)",
             root_cause_category=ROOT_CAUSE_CATEGORY["null_rate"],
             location=f"{len(keys)} rows nulled in {table}.{column}",
         )
@@ -225,8 +227,8 @@ class Injector:
             elif t == "null_rate":
                 gt.injections.append(
                     self.inject_null_rate(
-                        conn, spec["table"], spec["column"], spec["status_col"],
-                        spec["status_value"], spec["key_cols"], spec.get("n", 1),
+                        conn, spec["table"], spec["column"], spec.get("status_col"),
+                        spec.get("status_value"), spec["key_cols"], spec.get("n", 1),
                     )
                 )
             elif t == "value_range":
