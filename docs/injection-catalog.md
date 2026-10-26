@@ -87,7 +87,11 @@
   - 归因 0.75（8 类型，归因错 2）、整改 0.286（schema/lineage 不可逆）、token 25万
   - ✅ 修复：lineage_break 注入连带触发 freshness（删下游 → 同时"落后上游"+"落后当前"）→ 修 ground-truth（injector 同时标注 freshness anomaly），P 从 0.857 → 1.0，174 测试全绿
   - 发现：L1 根因（上游延迟/schema 变更）比"脏数据注入"更难归因
-- [ ] Tier 2：injector 扩 value_range/duplicate/null 变体
+- [x] **Tier 2**：扩 duplicate(payments/reviews) + value_range(review_score/installments/weight) + null(customer_id)
+  - 结果（修复 orphan 口径后）：检测 P=1.0 / R=1.0 / F1=1.0（14 类型全 F1=1.0）
+  - 归因 0.857、整改 0.583、端到端 0.5、token 35万
+  - ✅ 修复：null customer_id 注入触发 orders→customers 孤儿（NULL 外键被当 orphan）→ check_orphan 加 `IS NOT NULL`，orphan F1 从 0.667 → 1.0
+  - 发现：Tier 2 的 duplicate/value_range/null 是"脏数据注入"（比 L1 更易归因+更可逆），把归因(0.75→0.857)和整改(0.286→0.583)都拉高了
 - [ ] Tier 3：新 L0 规则（时间倒挂 / 未来日期）
 - [ ] Tier 4：L1 volume/distribution 注入方法
 - [ ] 数据飞轮：eval 结果 → cases 库回流
