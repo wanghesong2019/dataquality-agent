@@ -160,22 +160,22 @@ class Injector:
             location=f"column {drop_column} dropped from {table}",
         )
 
-    def inject_time_inversion(self, conn, n: int = 3) -> InjectedAnomaly:
-        """把 n 个 delivered 订单的交付日期改到下单之前，制造时间倒挂。"""
+    def inject_time_inversion(self, conn, n: int = 3,
+                              column: str = "order_delivered_customer_date") -> InjectedAnomaly:
+        """把 n 个订单的某时间字段改到下单之前，制造时间倒挂（column 可扩到预估送达等）。"""
         orders = conn.execute(
-            "SELECT order_id FROM orders WHERE order_status = 'delivered' "
-            "AND order_delivered_customer_date IS NOT NULL LIMIT ?", [n]
+            f"SELECT order_id FROM orders WHERE {column} IS NOT NULL LIMIT ?", [n]
         ).fetchall()
         for (order_id,) in orders:
             conn.execute(
-                "UPDATE orders SET order_delivered_customer_date = order_purchase_timestamp - INTERVAL 5 DAY "
-                "WHERE order_id = ?", [order_id]
+                f"UPDATE orders SET {column} = order_purchase_timestamp - INTERVAL 5 DAY "
+                f"WHERE order_id = ?", [order_id]
             )
         return InjectedAnomaly(
-            type="time_inversion", table="orders", column="order_delivered_customer_date",
-            root_cause=f"{len(orders)} rows delivered date set before purchase",
+            type="time_inversion", table="orders", column=column,
+            root_cause=f"{len(orders)} rows {column} set before purchase",
             root_cause_category=ROOT_CAUSE_CATEGORY["time_inversion"],
-            location=f"{len(orders)} rows time-inverted in orders",
+            location=f"{len(orders)} rows time-inverted in orders.{column}",
         )
 
     def inject_future_date(self, conn, n: int = 3) -> InjectedAnomaly:
@@ -336,7 +336,8 @@ class Injector:
             elif t == "zip_inconsistency":
                 gt.injections.append(self.inject_zip_inconsistency(conn, spec.get("n", 1)))
             elif t == "time_inversion":
-                gt.injections.append(self.inject_time_inversion(conn, spec.get("n", 1)))
+                gt.injections.append(self.inject_time_inversion(
+                    conn, spec.get("n", 1), spec.get("column", "order_delivered_customer_date")))
             elif t == "future_date":
                 gt.injections.append(self.inject_future_date(conn, spec.get("n", 1)))
             elif t == "volume":

@@ -46,16 +46,20 @@ def check_value_range(conn, table: str, column: str, min_val=None, max_val=None)
     return []
 
 
-def check_time_inversion(conn) -> list[Anomaly]:
-    """时间倒挂：交付日期早于下单日期（delivered < purchase），逻辑矛盾。"""
+def check_time_inversion(conn, column: str = "order_delivered_customer_date",
+                         label: str = "交付日期早于下单日期") -> list[Anomaly]:
+    """时间倒挂：某时间字段早于下单日期（< purchase），逻辑矛盾。
+
+    column 可扩多个时间字段（交付日期、预估送达日期等），都判「时间逻辑错误」→ ETL逻辑变更。
+    """
     n = conn.execute(
-        "SELECT COUNT(*) FROM orders WHERE order_delivered_customer_date IS NOT NULL "
-        "AND order_delivered_customer_date < order_purchase_timestamp"
+        f"SELECT COUNT(*) FROM orders WHERE {column} IS NOT NULL "
+        f"AND {column} < order_purchase_timestamp"
     ).fetchone()[0]
     if n > 0:
         return [Anomaly(type="time_inversion", table="orders",
-                        column="order_delivered_customer_date",
-                        evidence=f"{n} 行交付日期早于下单日期", metric_value=n)]
+                        column=column,
+                        evidence=f"{n} 行{label}", metric_value=n)]
     return []
 
 
@@ -107,8 +111,9 @@ def run_rule_checks(conn) -> list[Anomaly]:
     anomalies += check_null_rate(conn, "orders", "order_delivered_customer_date", "order_status", "delivered", 0.05)
     # 关键外键不应为空（全表检查，无 status 分层）
     anomalies += check_null_rate(conn, "orders", "customer_id", threshold=0.0)
-    # 时间逻辑：交付早于下单（倒挂）+ 下单时间超出采集范围（未来日期）
-    anomalies += check_time_inversion(conn)
+    # 时间逻辑：交付早于下单（倒挂）+ 预估送达早于下单（第二时间字段）+ 下单时间超出采集范围（未来日期）
+    anomalies += check_time_inversion(conn, "order_delivered_customer_date", "交付日期早于下单日期")
+    anomalies += check_time_inversion(conn, "order_estimated_delivery_date", "预估送达日期早于下单日期")
     anomalies += check_future_date(conn)
     return anomalies
 

@@ -1,6 +1,6 @@
 # RAG 案例检索 + 数据飞轮治理设计（收窄落地版）
 
-> 日期：2026-10-27 ｜ 状态：实施中（4.1/4.2/4.3 ✅，4.4/4.5 待做） ｜ 定位：本次改动的唯一决策依据
+> 日期：2026-10-27 ｜ 状态：实施中（4.1-4.4 ✅，4.5 待做） ｜ 定位：本次改动的唯一决策依据
 > 关联文档：`docs/injection-catalog.md`（注入类型目录）、`docs/agent-interview-guide.md`（面试问答）
 
 ---
@@ -99,13 +99,14 @@ STL/MSTL 季节性分解、BOCPD 结构突变检测、两级自适应阈值、CU
 
 ### 4.4 飞轮策展摊平根因类别
 
-- `scripts/run_eval.py::INJECTION_SPECS` 为稀有根因类别各补 1-2 条注入（换表/列/位置，不重复现有）：
-  - 「上游任务失败」orphan：再补 1 条 FK 边（如 `payments→orders` 已在 consistency 但可加一条显式注入）；
-  - 「上游数据延迟」lineage_break/freshness：补 1 条不同下游表；
-  - 「schema变更」：补 1 列。
+- `scripts/run_eval.py::INJECTION_SPECS` 为稀有根因类别各补 1 条注入（换表/列，不重复现有）：
+  - 「上游任务失败」orphan：补 `orders→customers` FK 边（叶子父表，删 customers 只孤儿 orders、不级联；baseline=0 无 always-on 误报）；
+  - 「schema变更」schema_drift：补 drop `order_delivered_carrier_date`（dwd_orders 第二列）；
+  - 「ETL逻辑变更」time_inversion：补第二时间字段 `order_estimated_delivery_date`（`check_time_inversion`/`inject_time_inversion` 泛化 column 参数；baseline=0）。
+- 「上游数据延迟」lineage_break/freshness 已在 2 条（语义重叠），**未再补**——demo 数仓只有 `daily_metrics` 一张带日期轴的 DWS 表，无第二下游表可加；删 orders 造 freshness 会级联孤儿 order_items/payments/reviews 三处误报，留作生产方向。
 - 目的：让案例库每类根因 ≥ 2 条，摊平「脏数据注入」的头部优势。
 
-**验收**：`ROOT_CAUSE_CATEGORY` 各根因类别的案例数更均衡；归因准确率对稀有类别不再全错。
+**验收**：✅ 已达成——飞轮案例 16→19 条，每类根因均 ≥2（上游任务失败 3 / 脏数据注入 10 / 上游数据延迟 2 / schema变更 2 / ETL逻辑变更 2）；检测 F1=1.0 不退化（tp=15/fp=0/fn=0）；检索 Recall@3=1.0、MRR=0.948（3 条新案例均可检索）。归因准确率对稀有类别的 LLM 端到端验证随 run_eval 全量跑（闲时）。
 
 ### 4.5 volume/distribution：retention-window 截尾
 
@@ -138,7 +139,7 @@ STL/MSTL 季节性分解、BOCPD 结构突变检测、两级自适应阈值、CU
 | 1 | 4.1 飞轮 bug | `scripts/run_eval.py`、`rag/cases.py`、`scripts/regenerate_flywheel.py`（新） | ✅ 16 条无冲突、含 desc/remedy+table/column（单测 6/6） |
 | 2 | 4.2 检索评测 | `rag/cases.py`、`scripts/run_retrieval_eval.py` | ✅ Recall@3=1.0 / MRR=0.942，26 条（10 静态+16 飞轮） |
 | 3 | 4.3 检测统计量 | `detection/stats.py`、`tests/test_stats.py` | ✅ 16 类 F1=1.0 不退化，分类列走 chi2 + min_count=100 |
-| 4 | 4.4 策展摊平 | `scripts/run_eval.py` | 根因类别案例数均衡 |
+| 4 | 4.4 策展摊平 | `scripts/run_eval.py`、`detection/rules.py`、`data/injector.py` | ✅ 每类根因 ≥2（19 案例），F1=1.0 不退化 |
 | 5 | 4.5 截尾 | `data/warehouse.py`、`scripts/run_eval.py` | 18 类型检测 F1=1.0 |
 
 每步跑通后回写本表验收列，再进下一步。全部完成后同步更新 `injection-catalog.md` 的「诚实边界」一节（指向本「生产演进」第 5 节）。

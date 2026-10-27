@@ -56,6 +56,12 @@ INJECTION_SPECS = [
     # Tier 3 新增：时间倒挂 + 未来日期（新 L0 规则 + 新注入方法）
     {"type": "time_inversion", "n": 3},
     {"type": "future_date", "n": 3},
+    # 4.4 策展摊平：稀有根因类别各补注入（孤儿 orders→customers、schema 第二列、时间倒挂第二列），
+    # 让案例库每类根因 ≥2，摊平「脏数据注入」的头部优势。
+    {"type": "orphan", "child_table": "orders", "parent_table": "customers",
+     "parent_pk": "customer_id", "child_fk": "customer_id", "n": 20},
+    {"type": "schema_drift", "table": "dwd_orders", "drop_column": "order_delivered_carrier_date"},
+    {"type": "time_inversion", "n": 3, "column": "order_estimated_delivery_date"},
     # 注：volume/distribution 注入方法已实现（inject_volume_spike/inject_distribution_drift），
     # 但 Olist 数据长尾（最新一天仅 1 单、基线 std=0）使 z-score/PSI 检测在"最新一天"口径下退化，
     # 无法端到端触发——留作诚实边界，不纳入 INJECTION_SPECS（改滑动窗口口径后可再启用）。
