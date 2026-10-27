@@ -25,7 +25,7 @@ from dataquality_agent.eval.harness import (
 )
 from dataquality_agent.llm import DeepSeekClient, LLMAdapter
 from dataquality_agent.observability.tracing import Tracer
-from dataquality_agent.rag.cases import build_retriever, persist_flywheel_cases
+from dataquality_agent.rag.cases import build_retriever, make_flywheel_case, persist_flywheel_cases
 
 
 # 注入计划：可逆（duplicate/value_range）+ 数据丢失（orphan/null_rate），n 按真实数据量定。
@@ -124,13 +124,8 @@ def main() -> None:
                       baseline=baseline, detected_all=detected_before)
     by_rev = remediation_success_by_reversibility(diagnose_targets, detected_after, injected)
 
-    # 数据飞轮写入侧：注入异常 → 案例回流（含 ground-truth 根因类别）
-    flywheel_cases = [
-        {"id": f"{inj.type}_{inj.table}",
-         "text": f"{inj.table} {inj.column or '-'} 异常，根因{inj.root_cause_category}",
-         "type": inj.type, "root_cause": inj.root_cause_category}
-        for inj in injected
-    ]
+    # 数据飞轮写入侧：注入异常 → 案例回流（含 ground-truth 根因类别 + desc/remedy，id 唯一化）
+    flywheel_cases = [make_flywheel_case(inj) for inj in injected]
     persist_flywheel_cases(flywheel_cases)
     print(f"[flywheel] {len(flywheel_cases)} 条注入异常已回流案例库")
 

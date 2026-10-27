@@ -26,6 +26,47 @@ INJECTION_CASES = [
 ]
 
 
+# 飞轮案例写入侧的元数据：注入类型 → (中文异常描述, 整改动作)。
+# 与静态 INJECTION_CASES 的 desc/remedy 同语义，根因类别对齐 injector.py 的 ROOT_CAUSE_CATEGORY。
+CASE_REMEDY = {
+    "duplicate": ("主键/唯一键重复", "去重 DELETE"),
+    "orphan": ("孤儿外键（父表行被删）", "重跑上游加载"),
+    "null_rate": ("关键列为 null", "回填缺失值"),
+    "value_range": ("数值超出合法值域", "回填正确值"),
+    "lineage_break": ("下游表停更（水位线落后上游）", "补跑上游任务"),
+    "freshness": ("数据停更（最新分区落后当前日期）", "补跑采集"),
+    "schema_drift": ("列缺失/类型变更", "回滚 schema"),
+    "amount_mismatch": ("支付总额与明细总额不一致", "对齐金额"),
+    "state_conflict": ("已取消订单却有评价", "清理矛盾状态"),
+    "zip_inconsistency": ("同一邮编映射多个城市", "修正邮编映射"),
+    "time_inversion": ("交付日期早于下单日期", "修正时间字段"),
+    "future_date": ("时间戳超出采集范围", "修正时间戳"),
+    "volume": ("日单量/指标突刺", "复查业务口径"),
+    "distribution": ("分类分布漂移", "复查业务口径"),
+}
+
+
+def make_flywheel_case(inj) -> dict:
+    """把一条注入异常（InjectedAnomaly）转成飞轮案例：id 唯一化 + 文本补 desc/remedy。
+
+    id 规则 = `{type}_{table}_{column}`（column 里的非字母数字替换为 `_`；column 缺省退化为
+    `{type}_{table}`）。消除「同 type 同表不同列」的 id 冲突（如 orphan_order_items 的
+    products/sellers 两例、null_rate_orders 的 delivered 日期/customer_id 两例）。
+    """
+    desc, remedy = CASE_REMEDY.get(inj.type, ("异常", "人工核查"))
+    column = (inj.column or "").strip()
+    cid_col = "".join(ch if (ch.isalnum() or ch == "_") else "_" for ch in column)
+    cid = f"{inj.type}_{inj.table}_{cid_col}" if cid_col else f"{inj.type}_{inj.table}"
+    return {
+        "id": cid,
+        "text": f"{inj.table}.{column or '-'} {desc}，根因{inj.root_cause_category}，整改{remedy}",
+        "type": inj.type,
+        "root_cause": inj.root_cause_category,
+        "table": inj.table,
+        "column": column or None,
+    }
+
+
 FLYWHEEL_CASES_PATH = Path(__file__).resolve().parents[3] / "data" / "flywheel_cases.json"
 
 
@@ -43,7 +84,11 @@ def persist_flywheel_cases(cases: list[dict], path: Path = FLYWHEEL_CASES_PATH) 
 
 
 def _build_cases() -> list[dict]:
-    """案例库 = 静态注入案例 + 数据飞轮回流案例（同 id 用飞轮更新版覆盖）。"""
+    """案例库 = 静态注入案例（`{type}_{table}` 种子）+ 数据飞轮回流案例（`{type}_{table}_{column}` 增量）。
+
+    飞轮 id 含 column、静态 id 不含，两者天然不冲突 → 飞轮只增不覆盖，静态的 desc/remedy 不再被顶掉。
+    若未来出现同 id（如人工回灌），仍按飞轮版本覆盖。
+    """
     static = [
         {"id": f"{typ}_{table}", "text": f"{table} {column} {desc}，根因{category}，整改{remedy}"}
         for typ, table, column, desc, category, remedy in INJECTION_CASES
