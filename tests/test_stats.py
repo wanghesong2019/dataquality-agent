@@ -1,6 +1,6 @@
 from dataquality_agent.data.lineage import Lineage
 from dataquality_agent.detection.stats import (
-    zscore_detect, psi, check_freshness, schema_diff, detect_lineage_break,
+    zscore_detect, chi2_drift, check_freshness, schema_diff, detect_lineage_break,
     detect_freshness, detect_schema_drift, detect_volume, detect_distribution,
 )
 
@@ -16,10 +16,17 @@ def test_zscore_detect_constant_baseline():
     assert zscore_detect(100, [100, 100, 100], 3.0) is False
 
 
-def test_psi_similar_and_shifted():
-    expected = {"credit_card": 80, "boleto": 20}
-    assert psi({"credit_card": 82, "boleto": 18}, expected) < 0.1   # 相似，PSI 小
-    assert psi({"credit_card": 20, "boleto": 80}, expected) > 0.1   # 漂移，PSI 大
+def test_chi2_drift_similar_and_shifted():
+    base = {"delivered": 90, "canceled": 10}
+    # 相似分布 → p 大（不漂移）
+    assert chi2_drift({"delivered": 90, "canceled": 10}, base) > 0.05
+    # 明显漂移 → p 小
+    assert chi2_drift({"delivered": 10, "canceled": 90}, base) < 0.05
+
+
+def test_chi2_drift_new_category():
+    # 基线没有的新类别突然出现 → 明确漂移（p≈0）
+    assert chi2_drift({"new_type": 50, "delivered": 50}, {"delivered": 100}) == 0.0
 
 
 def test_check_freshness():
@@ -96,8 +103,38 @@ def _dist_conn():
 
 
 def test_detect_distribution_shift():
-    assert detect_distribution(_dist_conn(), threshold=0.10) != []  # 明显漂移应被 PSI 检出
-    assert detect_distribution(_dist_conn(), threshold=100.0) == []  # 阈值极高，不报
+    assert detect_distribution(_dist_conn(), alpha=0.05) != []  # 明显漂移应被卡方检出
+
+
+def _dist_conn_similar():
+    import duckdb
+    conn = duckdb.connect()
+    conn.execute("CREATE TABLE dwd_orders (order_purchase_timestamp TIMESTAMP, order_status VARCHAR)")
+    # 两天同分布：90 delivered + 10 canceled，无漂移
+    for day in ("2018-01-01 10:00:00", "2018-01-02 10:00:00"):
+        for _ in range(90):
+            conn.execute("INSERT INTO dwd_orders VALUES (?, 'delivered')", [day])
+        for _ in range(10):
+            conn.execute("INSERT INTO dwd_orders VALUES (?, 'canceled')", [day])
+    return conn
+
+
+def test_detect_distribution_no_shift():
+    assert detect_distribution(_dist_conn_similar(), alpha=0.05) == []  # 同分布，不报
+
+
+def _dist_conn_small_tail():
+    import duckdb
+    conn = duckdb.connect()
+    conn.execute("CREATE TABLE dwd_orders (order_purchase_timestamp TIMESTAMP, order_status VARCHAR)")
+    for _ in range(100):
+        conn.execute("INSERT INTO dwd_orders VALUES ('2018-01-01 10:00:00', 'delivered')")
+    conn.execute("INSERT INTO dwd_orders VALUES ('2018-01-02 10:00:00', 'canceled')")  # 最新一天仅 1 单（尾部塌陷）
+    return conn
+
+
+def test_detect_distribution_min_count_skip():
+    assert detect_distribution(_dist_conn_small_tail(), alpha=0.05) == []  # 最新一天样本不足，跳过
 
 
 def test_detect_volume_multi_metric():
@@ -135,7 +172,18 @@ def test_detect_distribution_multi_dim():
         conn.execute("INSERT INTO dwd_reviews VALUES ('2018-01-02 10:00:00', 1)")
     dims = (("dwd_orders", "order_status", "order_purchase_timestamp"),
             ("dwd_reviews", "review_score", "review_creation_date"))
-    anomalies = detect_distribution(conn, threshold=0.10, dimensions=dims)
+    anomalies = detect_distribution(conn, alpha=0.05, dimensions=dims)
     assert {(a.table, a.column) for a in anomalies} == {
         ("dwd_orders", "order_status"), ("dwd_reviews", "review_score"),
     }
+
+
+def test_detect_volume_min_count_skip():
+    """最新一天样本不足（尾部塌陷半拉日）→ 显式跳过，不硬跑 z-score 防截断误判量崩。"""
+    import duckdb
+    conn = duckdb.connect()
+    conn.execute("CREATE TABLE daily_metrics (order_date DATE, orders INTEGER)")
+    for i in range(7):
+        conn.execute("INSERT INTO daily_metrics VALUES (?, ?)", [f"2018-01-0{i + 1}", 500 + i * 10])
+    conn.execute("INSERT INTO daily_metrics VALUES ('2018-01-08', 1)")  # 最新一天仅 1 单
+    assert detect_volume(conn, threshold=3.0) == []

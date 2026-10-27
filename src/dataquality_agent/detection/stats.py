@@ -1,7 +1,8 @@
 """L1 统计检测：学历史基线报偏差，0 LLM。"""
-import math
 import statistics
 from datetime import date
+
+from scipy.stats import chisquare
 
 from dataquality_agent.data.lineage import Lineage
 from dataquality_agent.models import Anomaly
@@ -25,20 +26,46 @@ def zscore_detect(current: float, baseline: list[float], threshold: float = 3.0)
     return abs(current - mean) / std > threshold
 
 
-def psi(actual: dict, expected: dict, epsilon: float = 1e-3) -> float:
+def chi2_drift(cur: dict, exp: dict, min_expected: float = 5.0) -> float:
+    """分类列分布漂移：卡方拟合优度检验，返回 p 值（越小越像漂移）。
+
+    cur = 最新窗口 {类别: 计数}（observed）；exp = 基线 {类别: 计数}（expected 来源）。
+    期望计数 = 基线比例 × 最新窗口总量。expected < min_expected 的稀有类别合并进
+    ``__other__``（Cochran 规则，保证卡方近似有效）；最新窗口出现基线没有的新类别直接判 p≈0。
+    PSI 只对「数值列分箱后的分布」有意义，order_status/review_score 是分类列（nominal/ordinal），
+    该用卡方拟合优度而非 PSI——这是本函数替换 psi 的原因。
     """
-    分布漂移：PSI 指数，越大漂移越严重。actual/expected 为 {类别: 计数}。
-    1. 含义解释：这段脚本实现的是PSI(Population Stability Index，群体稳定性指数)，这是风控、信用
-        评分及机器学习模型监控中衡量分布漂移的核心指标    
-    """
-    total_a = sum(actual.values())
-    total_e = sum(expected.values())
-    score = 0.0
-    for c in set(actual) | set(expected):
-        a = max(actual.get(c, 0) / total_a, epsilon)  # 下限防 log(0)
-        e = max(expected.get(c, 0) / total_e, epsilon)
-        score += (a - e) * math.log(a / e)
-    return score
+    obs_total = sum(cur.values())
+    exp_total = sum(exp.values())
+    if obs_total == 0 or exp_total == 0:
+        return 1.0  # 无观测或无限基，无法判定，不报
+    # 新类别：基线 0、最新窗口 > 0 → 明确漂移
+    if any(o > 0 and exp.get(c, 0) == 0 for c, o in cur.items()):
+        return 0.0
+    ratio = obs_total / exp_total
+    obs: dict[str, float] = {}
+    expected: dict[str, float] = {}
+    obs_other = 0.0
+    exp_other = 0.0
+    for c, e_base in exp.items():
+        if e_base == 0:
+            continue
+        e = e_base * ratio
+        if e < min_expected:
+            obs_other += cur.get(c, 0)
+            exp_other += e
+        else:
+            obs[c] = cur.get(c, 0)
+            expected[c] = e
+    if exp_other > 0:
+        obs["__other__"] = obs_other
+        expected["__other__"] = exp_other
+    if len(expected) < 2:
+        return 1.0  # 合并后自由度不足，无法检验，不报
+    f_obs = [obs[c] for c in expected]
+    f_exp = [expected[c] for c in expected]
+    _, p = chisquare(f_obs, f_exp)
+    return float(p)
 
 
 def _cat_dist(conn, table: str, cat_col: str, date_col: str, day=None) -> dict[str, int]:
@@ -56,8 +83,14 @@ def _cat_dist(conn, table: str, cat_col: str, date_col: str, day=None) -> dict[s
 
 
 def detect_volume(conn, threshold: float = 3.0, lookback: int = 7,
-                  metrics: tuple[str, ...] = ("orders",)) -> list[Anomaly]:
-    """volume 点异常：最新一天各指标 vs 前 lookback 天基线（z-score）。多基线：orders + gmv。"""
+                  metrics: tuple[str, ...] = ("orders",), min_count: int = 100) -> list[Anomaly]:
+    """volume 点异常：最新一天各指标 vs 前 lookback 天基线（z-score）。多基线：orders + gmv。
+
+    min_count 守卫：最新一天样本量 < min_count 时显式跳过，不硬跑 z-score——Olist 尾部塌陷
+    （最新一天仅 1 单）是「采集截止的半拉日」，硬跑会把截断误判成量崩（|z| 巨大）。
+    threshold/min_count 当前硬编码：生产需按列标定（calibrate_from_history），见
+    docs/rag-flywheel-governance.md 第 5 节。
+    """
     cols = ", ".join(metrics)
     rows = conn.execute(
         f"SELECT {cols} FROM daily_metrics ORDER BY order_date DESC LIMIT ?", [lookback + 1]
@@ -67,6 +100,8 @@ def detect_volume(conn, threshold: float = 3.0, lookback: int = 7,
     anomalies: list[Anomaly] = []
     for idx, metric in enumerate(metrics):
         current = rows[0][idx]
+        if current < min_count:
+            continue  # 最新一天样本不足（采集截止半拉日），显式跳过，防截断误判成量崩
         baseline = [r[idx] for r in rows[1:]]
         if zscore_detect(current, baseline, threshold):
             anomalies.append(Anomaly(
@@ -78,33 +113,42 @@ def detect_volume(conn, threshold: float = 3.0, lookback: int = 7,
 
 
 def _dist_drift(conn, table: str, cat_col: str, date_col: str,
-                threshold: float, min_count: int) -> list[Anomaly]:
-    """某分类列「最新一天分布 vs 全历史基线」的 PSI 漂移检测（多基线共用的底层）。"""
+                alpha: float, min_count: int) -> list[Anomaly]:
+    """某分类列「最新一天分布 vs 全历史基线」的卡方漂移检测（多基线共用的底层）。
+
+    基线 = 全历史（含最新一天，占比极小可忽略）。最新一天样本量 < min_count 时显式跳过，
+    不硬算——Olist 尾部塌陷（最新一天仅 1 单）会退化成小样本噪声，卡方/PSI 都不该硬跑。
+    """
     latest = conn.execute(f"SELECT MAX({date_col}::DATE) FROM {table}").fetchone()[0]
     if latest is None:
         return []
     cur = _cat_dist(conn, table, cat_col, date_col, latest)
     if sum(cur.values()) < min_count:
-        return []  # 最新一天样本太少，无法判断分布漂移（防小样本误报）
-    exp = _cat_dist(conn, table, cat_col, date_col, None) # exp大约有类似期待的意思
-    score = psi(cur, exp)
-    if score > threshold:
+        return []  # 最新一天样本不足（< min_count），显式跳过而非硬算（防小样本误报）
+    exp = _cat_dist(conn, table, cat_col, date_col, None)
+    p = chi2_drift(cur, exp)
+    if p < alpha:
         return [Anomaly(
             type="distribution", table=table, column=cat_col,
-            evidence=f"{cat_col} 分布漂移 PSI={score:.3f} 超阈值 {threshold}",
-            metric_value=round(score, 4), expected_range=f"PSI <= {threshold}",
+            evidence=f"{cat_col} 分布漂移 χ² p={p:.3g} < {alpha}",
+            metric_value=round(p, 6), expected_range=f"χ² p >= {alpha}",
         )]
     return []
 
 
-def detect_distribution(conn, threshold: float = 0.10, min_count: int = 10,
+def detect_distribution(conn, alpha: float = 0.05, min_count: int = 100,
                         dimensions: tuple[tuple[str, str, str], ...] = (
                             ("dwd_orders", "order_status", "order_purchase_timestamp"),
                         )) -> list[Anomaly]:
-    """distribution 漂移：多基线（order_status + review_score）。每个维度 = (table, cat_col, date_col)。"""
+    """distribution 漂移：多基线（order_status + review_score）。每个维度 = (table, cat_col, date_col)。
+
+    分类列用卡方拟合优度（p < alpha 判漂移），不是 PSI——PSI 只对数值列分箱有意义。
+    alpha/min_count 当前硬编码：生产需按列标定（calibrate_from_history），见
+    docs/rag-flywheel-governance.md 第 5 节。
+    """
     anomalies: list[Anomaly] = []
     for table, cat_col, date_col in dimensions:
-        anomalies += _dist_drift(conn, table, cat_col, date_col, threshold, min_count)
+        anomalies += _dist_drift(conn, table, cat_col, date_col, alpha, min_count)
     return anomalies
 
 

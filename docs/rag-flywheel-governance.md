@@ -1,6 +1,6 @@
 # RAG 案例检索 + 数据飞轮治理设计（收窄落地版）
 
-> 日期：2026-10-27 ｜ 状态：待实施 ｜ 定位：本次改动的唯一决策依据
+> 日期：2026-10-27 ｜ 状态：实施中（4.1/4.2/4.3 ✅，4.4/4.5 待做） ｜ 定位：本次改动的唯一决策依据
 > 关联文档：`docs/injection-catalog.md`（注入类型目录）、`docs/agent-interview-guide.md`（面试问答）
 
 ---
@@ -95,7 +95,7 @@ STL/MSTL 季节性分解、BOCPD 结构突变检测、两级自适应阈值、CU
 - `detection/stats.py::detect_volume`：保持现状（不引入 EWMA/CUSUM），仅补 `min_count` 守卫：基线窗口样本不足时显式跳过，不再硬跑 z-score。
 - 阈值：不引入自适应，保持硬编码但**在注释中标注**「生产需逐列标定（calibrate_from_history），见第 5 节」。
 
-**验收**：重跑 `run_eval.py`，16 类检测 P/R/F1 不退化（P=1.0）；`detect_distribution` 对分类列用 chi2 而非 PSI（有单测覆盖 `test_stats.py` 更新）。
+**验收**：✅ 已达成——检测层重跑 P/R/F1=1.0/1.0/1.0（tp=14 去重键、fp=0、fn=0，16 注入异常全检出）；`detect_distribution` 用 `scipy.stats.chisquare` 拟合优度 + Cochran 合并（expected<5 进 other）；`detect_volume` 补 min_count=100 守卫；单测 17/17（新增 chi2/no-shift/min-count 覆盖）。volume/distribution 在尾部塌陷下均正确跳过（不再误报「量崩」）。
 
 ### 4.4 飞轮策展摊平根因类别
 
@@ -137,7 +137,7 @@ STL/MSTL 季节性分解、BOCPD 结构突变检测、两级自适应阈值、CU
 |---|---|---|---|
 | 1 | 4.1 飞轮 bug | `scripts/run_eval.py`、`rag/cases.py`、`scripts/regenerate_flywheel.py`（新） | ✅ 16 条无冲突、含 desc/remedy+table/column（单测 6/6） |
 | 2 | 4.2 检索评测 | `rag/cases.py`、`scripts/run_retrieval_eval.py` | ✅ Recall@3=1.0 / MRR=0.942，26 条（10 静态+16 飞轮） |
-| 3 | 4.3 检测统计量 | `detection/stats.py`、`tests/test_stats.py` | 16 类 F1 不退化，分类列走 chi2 |
+| 3 | 4.3 检测统计量 | `detection/stats.py`、`tests/test_stats.py` | ✅ 16 类 F1=1.0 不退化，分类列走 chi2 + min_count=100 |
 | 4 | 4.4 策展摊平 | `scripts/run_eval.py` | 根因类别案例数均衡 |
 | 5 | 4.5 截尾 | `data/warehouse.py`、`scripts/run_eval.py` | 18 类型检测 F1=1.0 |
 
