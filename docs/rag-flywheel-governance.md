@@ -1,6 +1,6 @@
 # RAG 案例检索 + 数据飞轮治理设计（收窄落地版）
 
-> 日期：2026-10-27 ｜ 状态：实施中（4.1-4.4 ✅，4.5 待做） ｜ 定位：本次改动的唯一决策依据
+> 日期：2026-10-27 ｜ 状态：全部实施完成（4.1-4.5 ✅） ｜ 定位：本次改动的唯一决策依据
 > 关联文档：`docs/injection-catalog.md`（注入类型目录）、`docs/agent-interview-guide.md`（面试问答）
 
 ---
@@ -17,7 +17,7 @@
 | 4.2 | QUERIES 扩到 16 类 + 飞轮案例纳入检索评测 | 一小时级 |
 | 4.3 | 检测层修「用错工具」：PSI → chi2（分类列）+ min_count 提档 | 一小时级 |
 | 4.4 | 飞轮策展摊平根因类别（补稀有类别注入） | 半小时级 |
-| 4.5 | volume/distribution：retention-window 截尾，拿 18/18 | 几行 SQL + 远端重跑 |
+| 4.5 | volume/distribution：retention-window 截尾，拿 21 注入全绿 | 几行 SQL + 远端重跑 |
 
 **明确不做**（降级为第 5 节「生产化演进方向」的一段话，不实现）：
 STL/MSTL 季节性分解、BOCPD 结构突变检测、两级自适应阈值、CUSUM/EWMA、few-shot 合成数据生成、effective-number 检索加权、provenance 三态语料。
@@ -110,11 +110,11 @@ STL/MSTL 季节性分解、BOCPD 结构突变检测、两级自适应阈值、CU
 
 ### 4.5 volume/distribution：retention-window 截尾
 
-- `data/warehouse.py::build` 的 ODS `orders` 装载处加 cutoff：`WHERE order_purchase_timestamp < '<cutoff>'`，cutoff 取「日单量还没塌陷的最后一天」（需先在 33 服务器查 `daily_metrics` 日单量塌陷点确定精确日期）。
-- 下游 DWD/DWS 全靠 orders 派生，join 自然甩掉尾部；其余 16 类检测不受影响。
-- 把 volume/distribution 加回 `INJECTION_SPECS`（`inject_volume_spike` / `inject_distribution_drift` 已实现）。
+- `data/warehouse.py::build` 的 ODS `orders` 装载处加 cutoff `WHERE order_purchase_timestamp < '2018-08-24'`——cutoff 由 `daily_metrics` 日单量塌陷点确定：08-23 是最后一天单量 ≥100（144 单），08-24 跌破 100，08-29 后 gmv=0 死区。
+- DWD 表是各自 ODS 的直映射（**非** join orders 派生），故除 orders 截尾外，还要显式 `DELETE` order_items/payments/reviews 里 order_id 已不在 orders 的尾部行，否则它们悬空成孤儿误报。
+- 把 volume/distribution 加回 `INJECTION_SPECS`（`inject_volume_spike` / `inject_distribution_drift`）。
 
-**验收**：重跑 `run_eval.py`，volume/distribution 注入能端到端触发，**18 类型检测 F1=1.0**；文档（本节 + injection-catalog.md 诚实边界一节）注明「运营窗口排除 Olist 2018 采集端塌陷死区，生产仍需 STL 残差检测，见第 5 节」。
+**验收**：✅ 已达成——检测 21 条注入 F1=1.0（tp=17 去重键 / fp=0 / fn=0），volume/distribution 端到端触发（volume 检出 `daily_metrics.orders`、distribution 检出 `dwd_orders.order_status`）；全量 186 测试通过。诚实边界：运营窗口排除 Olist 2018 采集端塌陷死区，生产仍需 STL 残差检测（见第 5 节）。
 
 ---
 
@@ -140,11 +140,11 @@ STL/MSTL 季节性分解、BOCPD 结构突变检测、两级自适应阈值、CU
 | 2 | 4.2 检索评测 | `rag/cases.py`、`scripts/run_retrieval_eval.py` | ✅ Recall@3=1.0 / MRR=0.942，26 条（10 静态+16 飞轮） |
 | 3 | 4.3 检测统计量 | `detection/stats.py`、`tests/test_stats.py` | ✅ 16 类 F1=1.0 不退化，分类列走 chi2 + min_count=100 |
 | 4 | 4.4 策展摊平 | `scripts/run_eval.py`、`detection/rules.py`、`data/injector.py` | ✅ 每类根因 ≥2（19 案例），F1=1.0 不退化 |
-| 5 | 4.5 截尾 | `data/warehouse.py`、`scripts/run_eval.py` | 18 类型检测 F1=1.0 |
+| 5 | 4.5 截尾 | `data/warehouse.py`、`scripts/run_eval.py` | ✅ 21 注入 F1=1.0（volume/distribution 端到端） |
 
 每步跑通后回写本表验收列，再进下一步。全部完成后同步更新 `injection-catalog.md` 的「诚实边界」一节（指向本「生产演进」第 5 节）。
 
-收尾（零代码）：`agent-interview-guide.md` 的「已做 BM25 + llm_rerank」改为「llm_rerank 已实现待接线」——避免文档与现实不符的露馅风险（对应 2.1 待办 #5）。
+收尾（零代码）：✅ `agent-interview-guide.md` 的「已做 BM25 + llm_rerank」改为「llm_rerank 已实现待接线」——避免文档与现实不符的露馅风险（对应 2.1 待办 #5）。
 
 ---
 

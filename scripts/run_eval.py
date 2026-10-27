@@ -62,9 +62,10 @@ INJECTION_SPECS = [
      "parent_pk": "customer_id", "child_fk": "customer_id", "n": 20},
     {"type": "schema_drift", "table": "dwd_orders", "drop_column": "order_delivered_carrier_date"},
     {"type": "time_inversion", "n": 3, "column": "order_estimated_delivery_date"},
-    # 注：volume/distribution 注入方法已实现（inject_volume_spike/inject_distribution_drift），
-    # 但 Olist 数据长尾（最新一天仅 1 单、基线 std=0）使 z-score/PSI 检测在"最新一天"口径下退化，
-    # 无法端到端触发——留作诚实边界，不纳入 INJECTION_SPECS（改滑动窗口口径后可再启用）。
+    # 4.5 retention-window 截尾：warehouse.py 已把 orders 截到 2018-08-24 前（最新日 08-23 单量 144 ≥ min_count），
+    # volume/distribution 在「最新一天」口径下能端到端触发，纳回 INJECTION_SPECS。
+    {"type": "volume"},
+    {"type": "distribution"},
 ]
 
 

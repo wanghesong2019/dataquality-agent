@@ -256,7 +256,7 @@
 
 **本项目怎么答**：
 > 归因的"相似案例检索"是 dense（语义）+ BM25（关键词）两路召回、RRF 融合（`rag/retriever.py:25` 的 `search` 和 `:53` 的 `_rrf`，k=60）。Embedding 是可插拔的：配了 `EMBEDDING_BASE_URL` 走 OpenAI 兼容的 BGE-M3，否则词袋 fallback（`rag/embedder.py:63`）。
-> **RAG 深度（已做）**：BM25 现在是**标准的**（IDF + k1/b 长度归一化，`rag/retriever.py` 的 `_bm25`），并补了 `llm_rerank`（`rag/rerank.py`，LLM 精排，Cross-Encoder 的 LLM 版）。**案例库已回填**：`rag/cases.py` 把 10 类可注入异常沉淀成案例（含 ground-truth 根因），端到端评测 `evaluate_retrieval`（`eval/retrieval.py`）实测 **Recall@3=1.0 / MRR=1.0**（10 案例）。**中文分词已修**：`text.split()` 对中文无效（修复前 Recall@3 只有 0.3），改用字符 bigram 分词（`rag/tokenizer.py`，无词典、离线），生产再换 jieba/BGE-M3。
+> **RAG 深度（已做）**：BM25 现在是**标准的**（IDF + k1/b 长度归一化，`rag/retriever.py` 的 `_bm25`），`llm_rerank`（`rag/rerank.py`，LLM 精排，Cross-Encoder 的 LLM 版）**已实现待接线**（当前案例库小、top-3 收益边际，`build_cases_tool` 直接 `search(k=3)`）。**案例库已回填**：`rag/cases.py` 把可注入异常沉淀成案例（含 ground-truth 根因）+ 数据飞轮回流，端到端评测 `evaluate_retrieval` 实测 **Recall@3=1.0 / MRR=0.952**（10 静态 + 21 飞轮 = 31 案例）。**中文分词已修**：`text.split()` 对中文无效（修复前 Recall@3 只有 0.3），改用字符 bigram 分词（`rag/tokenizer.py`，无词典、离线），生产再换 jieba/BGE-M3。
 
 **来源**：llm-master rag_interview + 卡码笔记《RAG 大厂面试题汇总》+ 腾讯《为什么你的 RAG 检索不到答案》。
 
@@ -397,7 +397,7 @@
 
 ### 🟡 P1 —— ✅ 已完成（2026-10-19）
 
-5. ~~RAG 深度~~ ✅ 标准 BM25(IDF) + `llm_rerank` + `recall_at_k`/`mrr`（`rag/retriever.py`、`rag/rerank.py`、`eval/retrieval.py`）
+5. ~~RAG 深度~~ ✅ 标准 BM25(IDF) + `recall_at_k`/`mrr`（`rag/retriever.py`、`eval/retrieval.py`）；`llm_rerank` 已实现待接线（`rag/rerank.py`）
 6. ~~L2 语义检测~~ ✅ `detection/semantic.py`（LLM 采样 DWD 表找语义异常，`semantic_model` 缺省跳过）
 7. ~~L1 volume/distribution 接线~~ ✅ `detect_volume`(z-score) + `detect_distribution`(PSI) 接入 `run_detection`
 
