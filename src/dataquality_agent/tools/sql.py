@@ -33,7 +33,8 @@ class SafeSQL:
         err = validate_sql(sql, self.whitelist)
         if err:
             raise SQLGuardError(err)
-        rows = self.adapter.execute(sql)
+        # 多取一行用于探测是否超限：adapter 用 fetchmany 而非 fetchall，避免大结果集先整表物化进内存
+        rows = self.adapter.execute(sql, max_rows=self.max_rows + 1)
         if len(rows) > self.max_rows:
             raise SQLGuardError(f"result exceeds max_rows ({self.max_rows})")
         return rows

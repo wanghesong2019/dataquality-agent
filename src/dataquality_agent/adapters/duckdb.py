@@ -31,8 +31,9 @@ class DuckDBAdapter(WarehouseAdapter):
         self.connect()
         return self._conn
 
-    def execute(self, sql: str) -> list[tuple]:
-        return self._ensure().execute(sql).fetchall()
+    def execute(self, sql: str, max_rows: int | None = None) -> list[tuple]:
+        cur = self._ensure().execute(sql)
+        return cur.fetchmany(max_rows) if max_rows is not None else cur.fetchall()
 
     def list_tables(self) -> list[str]:
         rows = self._ensure().execute(

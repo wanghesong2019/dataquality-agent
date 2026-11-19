@@ -5,8 +5,8 @@ from typing import Protocol
 class WarehouseAdapter(Protocol):
     """数仓适配器接口（连接 / 只读查询 / 元数据）。"""
 
-    def execute(self, sql: str) -> list[tuple]:
-        """执行 SQL，返回行列表。"""
+    def execute(self, sql: str, max_rows: int | None = None) -> list[tuple]:
+        """执行 SQL，返回行列表；max_rows 非空时最多物化 max_rows 行（内存保护）。"""
         ...
 
     def list_tables(self) -> list[str]:

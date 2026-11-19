@@ -91,6 +91,21 @@ def test_restart_recovery(tmp_path):
     assert r2.get("abc")["status"] == "completed"
 
 
+def test_restart_get_restores_state(tmp_path):
+    """重启后直接 GET 历史 run（不先 approve），state 从 checkpointer 恢复而非内存缓存。"""
+    cp = str(tmp_path / "cp.sqlite")
+    store = str(tmp_path / "runs.sqlite")
+
+    r1 = PatrolRuntime(_persistent_graph(cp), RunStore(store))
+    r1.trigger("abc")
+
+    # 模拟重启：新实例无内存缓存，get 走 run_store + checkpointer 恢复分支
+    r2 = PatrolRuntime(_persistent_graph(cp), RunStore(store))
+    got = r2.get("abc")
+    assert got["status"] == "awaiting_approval"
+    assert got["state"]["anomalies"][0]["type"] == "orphan"
+
+
 def test_runstore_empty(tmp_path):
     """空 RunStore（Review Focus #3）：list_ids 为空、load 未知 run 返回 None。"""
     store = RunStore(str(tmp_path / "runs.sqlite"))
