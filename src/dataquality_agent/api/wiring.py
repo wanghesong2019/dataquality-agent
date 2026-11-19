@@ -5,6 +5,7 @@ from pathlib import Path
 
 from langgraph.checkpoint.sqlite import SqliteSaver
 
+from dataquality_agent.adapters import DuckDBAdapter
 from dataquality_agent.agents.diagnose import make_aggregate_diagnose_node
 from dataquality_agent.agents.graph import build_supervisor_graph
 from dataquality_agent.agents.hitl import make_approve_node
@@ -41,6 +42,7 @@ def build_runtime(settings: Settings | None = None) -> PatrolRuntime:
     warehouse = Warehouse(settings)
     warehouse.build()
     conn = warehouse.connect()
+    wh = DuckDBAdapter(conn)
 
     adapter = LLMAdapter(DeepSeekClient(), tracer=Tracer(backend=_build_tracer_backend()))
     retriever = build_retriever()
@@ -50,13 +52,13 @@ def build_runtime(settings: Settings | None = None) -> PatrolRuntime:
     checkpointer = SqliteSaver(sqlite3.connect(settings.checkpoint_path, check_same_thread=False))
 
     graph = build_supervisor_graph(
-        make_inspect_node(conn, adapter),
+        make_inspect_node(wh, adapter),
         make_triage_node(adapter),
         make_lineage_agent(adapter, Lineage()),
-        make_sql_agent(adapter, conn),
+        make_sql_agent(adapter, wh),
         make_cases_agent(adapter, retriever),
         make_aggregate_diagnose_node(adapter),
-        make_remediate_node(adapter, conn),
+        make_remediate_node(adapter, wh),
         make_approve_node(tracer=adapter.tracer),
         make_report_node(adapter),
         checkpointer=checkpointer,

@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from dataquality_agent.adapters import DuckDBAdapter
 from dataquality_agent.agents.diagnose import make_aggregate_diagnose_node
 from dataquality_agent.agents.remediate import make_remediate_node
 from dataquality_agent.agents.specialists import make_cases_agent, make_lineage_agent, make_sql_agent
@@ -69,11 +70,11 @@ INJECTION_SPECS = [
 ]
 
 
-def _supervisor_diagnose(adapter, diagnose_targets, eval_conn, retriever) -> list:
+def _supervisor_diagnose(adapter, diagnose_targets, eval_adapter, retriever) -> list:
     """Supervisor 版归因：分诊 + 3 专职 Agent（各处理分给自己的子集）+ 聚合。"""
     triage = make_triage_node(adapter)
     lineage_agent = make_lineage_agent(adapter, Lineage())
-    sql_agent = make_sql_agent(adapter, eval_conn)
+    sql_agent = make_sql_agent(adapter, eval_adapter)
     cases_agent = make_cases_agent(adapter, retriever)
     aggregate = make_aggregate_diagnose_node(adapter)
 
@@ -98,7 +99,7 @@ def main() -> None:
     expected_schema = {"dwd_orders": {r[0]: r[1] for r in clean.execute("DESCRIBE dwd_orders").fetchall()}}
     # 捕获干净基线：跨表一致性会检出真实数据自带的真问题（如 Olist 380 单支付金额对不上），
     # 这些是「已知基线」而非注入误报，评测时从误报里扣除（baseline-aware eval）。
-    baseline = run_detection(clean, current_date=current_date, expected_schema=expected_schema).anomalies
+    baseline = run_detection(DuckDBAdapter(clean), current_date=current_date, expected_schema=expected_schema).anomalies
 
     # 2) clone 干净数仓 → 一次性 eval DB，注入异常
     clone_warehouse(settings.db_path, eval_db)
@@ -107,7 +108,7 @@ def main() -> None:
     injected = Injector(eval_settings).run(eval_conn, INJECTION_SPECS).injections
 
     # 3) 检测
-    detection_report = run_detection(eval_conn, current_date=current_date, expected_schema=expected_schema)
+    detection_report = run_detection(DuckDBAdapter(eval_conn), current_date=current_date, expected_schema=expected_schema)
     detected_before = detection_report.anomalies
     # always-on 跨表异常（真实 Olist 自带的 380/609/8556）没有注入 ground-truth，只参与 baseline
     # 扣除、不进归因/整改循环——否则模型会对着它们幻觉出不存在列的 SQL（如 payment_total）。
@@ -118,12 +119,12 @@ def main() -> None:
     tracer = Tracer()
     adapter = LLMAdapter(DeepSeekClient(temperature=0), tracer=tracer)
     retriever = build_retriever()
-    diagnoses = _supervisor_diagnose(adapter, diagnose_targets, eval_conn, retriever)
-    remediations = make_remediate_node(adapter, eval_conn)(
+    diagnoses = _supervisor_diagnose(adapter, diagnose_targets, DuckDBAdapter(eval_conn), retriever)
+    remediations = make_remediate_node(adapter, DuckDBAdapter(eval_conn))(
         {"anomalies": diagnose_targets, "diagnoses": diagnoses})["remediations"]
 
     # 5) 复检（应用 fix_sql → 重跑检测）
-    detected_after = remediate_and_recheck(eval_conn, remediations, current_date, expected_schema)
+    detected_after = remediate_and_recheck(DuckDBAdapter(eval_conn), remediations, current_date, expected_schema)
 
     # 6) 组装报告 + 分型
     report = run_eval(injected, diagnose_targets, diagnoses, detected_after,

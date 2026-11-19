@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from dataquality_agent.adapters import DuckDBAdapter
 from dataquality_agent.agents.diagnose import make_aggregate_diagnose_node
 from dataquality_agent.agents.remediate import make_remediate_node
 from dataquality_agent.agents.specialists import make_cases_agent, make_lineage_agent, make_sql_agent
@@ -37,11 +38,11 @@ INJECTION_SPECS = [
 ]
 
 
-def _supervisor_diagnose(adapter, diagnose_targets, eval_conn, retriever) -> list:
+def _supervisor_diagnose(adapter, diagnose_targets, eval_adapter, retriever) -> list:
     """Supervisor 版归因：分诊 + 3 专职 Agent（各处理分给自己的子集）+ 聚合。"""
     triage = make_triage_node(adapter)
     lineage_agent = make_lineage_agent(adapter, Lineage())
-    sql_agent = make_sql_agent(adapter, eval_conn)
+    sql_agent = make_sql_agent(adapter, eval_adapter)
     cases_agent = make_cases_agent(adapter, retriever)
     aggregate = make_aggregate_diagnose_node(adapter)
 
@@ -64,7 +65,7 @@ def main() -> None:
     clean = Injector(settings).connect()
     current_date = str(clean.execute("SELECT MAX(order_purchase_timestamp::DATE) FROM dwd_orders").fetchone()[0])
     expected_schema = {"dwd_orders": {r[0]: r[1] for r in clean.execute("DESCRIBE dwd_orders").fetchall()}}
-    baseline = run_detection(clean, current_date=current_date, expected_schema=expected_schema).anomalies
+    baseline = run_detection(DuckDBAdapter(clean), current_date=current_date, expected_schema=expected_schema).anomalies
 
     # 2) clone + 注入
     clone_warehouse(settings.db_path, eval_db)
@@ -73,7 +74,7 @@ def main() -> None:
     injected = Injector(eval_settings).run(eval_conn, INJECTION_SPECS).injections
 
     # 3) 检测
-    detection_report = run_detection(eval_conn, current_date=current_date, expected_schema=expected_schema)
+    detection_report = run_detection(DuckDBAdapter(eval_conn), current_date=current_date, expected_schema=expected_schema)
     detected_before = detection_report.anomalies
     inj_keys = {(i.type, i.table) for i in injected}
     diagnose_targets = [a for a in detected_before if (a.type, a.table) in inj_keys]
@@ -81,12 +82,12 @@ def main() -> None:
     # 4) 归因（Supervisor 版）+ 整改
     tracer = Tracer()
     adapter = LLMAdapter(DeepSeekClient(temperature=0), tracer=tracer)
-    diagnoses = _supervisor_diagnose(adapter, diagnose_targets, eval_conn, build_retriever())
-    remediations = make_remediate_node(adapter, eval_conn)(
+    diagnoses = _supervisor_diagnose(adapter, diagnose_targets, DuckDBAdapter(eval_conn), build_retriever())
+    remediations = make_remediate_node(adapter, DuckDBAdapter(eval_conn))(
         {"anomalies": diagnose_targets, "diagnoses": diagnoses})["remediations"]
 
     # 5) 复检
-    detected_after = remediate_and_recheck(eval_conn, remediations, current_date, expected_schema)
+    detected_after = remediate_and_recheck(DuckDBAdapter(eval_conn), remediations, current_date, expected_schema)
 
     # 6) 组装报告 + 分型
     report = run_eval(injected, diagnose_targets, diagnoses, detected_after,
