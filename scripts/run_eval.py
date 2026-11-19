@@ -115,6 +115,15 @@ def main() -> None:
     inj_keys = {(i.type, i.table) for i in injected}
     diagnose_targets = [a for a in detected_before if (a.type, a.table) in inj_keys]
 
+    if "--no-llm" in sys.argv:
+        from dataquality_agent.models import CostLedger
+        report = run_eval(injected, diagnose_targets, [], [], detection_report.stats, CostLedger(),
+                          baseline=baseline, detected_all=detected_before, llm=False)
+        print("=" * 64)
+        print(f"检测 P/R/F1：P={report.detection.precision:.3f} R={report.detection.recall:.3f} F1={report.detection.f1:.3f}")
+        print("=" * 64)
+        return
+
     # 4) 归因（Supervisor 分诊 + 3 专职 Agent + 聚合）+ 整改（DeepSeek function calling）
     tracer = Tracer()
     adapter = LLMAdapter(DeepSeekClient(temperature=0), tracer=tracer)

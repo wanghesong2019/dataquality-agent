@@ -90,3 +90,13 @@ def test_run_eval_includes_llm_time():
     diagnoses = [Diagnosis(root_cause_category="脏数据注入", confidence=0.9)]
     report = run_eval(injected, detected, diagnoses, [], {"l0_rules": 0.1}, CostLedger(), llm_seconds=5.0)
     assert report.latency_seconds == pytest.approx(5.1)  # 检测 0.1 + LLM 5.0
+
+
+def test_run_eval_no_llm():
+    injected = [_inj("duplicate", "orders", "脏数据注入")]
+    detected = [Anomaly(type="duplicate", table="orders")]
+    report = run_eval(injected, detected, [], [], {"l0_rules": 0.1}, CostLedger(), llm=False)
+    assert report.detection.f1 == 1.0
+    assert report.attribution_accuracy is None
+    assert report.remediation_success is None
+    assert report.end_to_end_success is None

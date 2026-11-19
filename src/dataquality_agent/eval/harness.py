@@ -64,7 +64,7 @@ def remediation_success_by_reversibility(detected_before, detected_after, inject
 
 
 def run_eval(injected, detected_before, diagnoses, detected_after, stats, cost_ledger,
-             llm_seconds: float = 0.0, baseline=None, detected_all=None) -> EvalReport:
+             llm_seconds: float = 0.0, baseline=None, detected_all=None, llm: bool = True) -> EvalReport:
     """组装 EvalReport：把各阶段输出喂给 metrics 函数，得到面试可报的量化数字。
 
     llm_seconds = 归因/整改等 LLM 调用耗时（检测层耗时在 stats 里，两者相加 = 全流程耗时）。
@@ -73,6 +73,20 @@ def run_eval(injected, detected_before, diagnoses, detected_after, stats, cost_l
     detected_before = 只含注入目标的检测结果（与 diagnoses 等长，用于归因/整改对齐）。
     """
     det_all = detected_all if detected_all is not None else detected_before
+    if not llm:
+        return EvalReport(
+            detection=evaluate_detection(det_all, injected, baseline),
+            detection_by_type=evaluate_detection_by_type(det_all, injected, baseline),
+            attribution_accuracy=None,
+            remediation_success=None,
+            end_to_end_success=None,
+            latency_seconds=(total_latency(stats) if stats else 0.0),
+            total_tokens=cost_ledger.total_tokens if cost_ledger else 0,
+            total_cost=cost_ledger.total_cost if cost_ledger else 0.0,
+            llm_calls=cost_ledger.llm_calls if cost_ledger else 0,
+            trajectory=None,
+            failure_taxonomy=None,
+        )
     return EvalReport(
         detection=evaluate_detection(det_all, injected, baseline),
         detection_by_type=evaluate_detection_by_type(det_all, injected, baseline),
