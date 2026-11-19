@@ -59,15 +59,7 @@ TABLE_CODECS = {
 
 
 def _parse_findings(resp: dict) -> list[dict]:
-    """从 assistant 的 tool_calls 里取 submit_semantic_findings 的实参；解析失败降级空列表。
-
-    为什么读 `call["function"]["arguments"]` 而不是 schema 里的键：发给模型的 tools 是
-    SUBMIT_FINDINGS_SCHEMA，里面是 `parameters`（描述「参数应该长什么样」的 JSON Schema）；
-    模型真调工具时，响应 tool_calls 里的 `function.arguments` 是它按 parameters 填出来的
-    **实参 JSON 字符串**（如 '{"findings": [...]}'）。arguments 是「响应格式」的字段，不是
-    schema 里的键——两者在 API 的两侧：schema 是发给模型的约束，arguments 是模型回传的实参。
-    所以 json.loads(arguments) 拿到实参 dict，再取 findings。
-    """
+    """从 assistant 的 tool_calls 里取 submit_semantic_findings 的实参；解析失败降级空列表。"""
     for call in resp.get("tool_calls", []):
         if call.get("function", {}).get("name") == "submit_semantic_findings":
             try:
@@ -77,23 +69,21 @@ def _parse_findings(resp: dict) -> list[dict]:
     return []
 
 
-def _column_profile(conn, table: str, cols: list[tuple[str, str]]) -> dict:
+def _column_profile(adapter, table: str, cols: list[tuple[str, str]]) -> dict:
     """固定大小的列画像：cardinality / null 率 / min-max / 示例值。
 
-    每列只有固定几个数字 + 最多 5 个随机示例值，token 成本不随行数增长（替代「取前 N 行」的原始行采样）。
-    cardinality/null 率/min-max 是全表聚合（非采样）；示例值是随机 5 个 distinct 值
-    （ORDER BY random()，不是前 5 个，避免偏向最早数据）。
+    每列只有固定几个数字 + 最多 5 个随机示例值，token 成本不随行数增长。
     """
     profile: dict = {}
     for col_name, col_type in cols:
-        row = conn.execute(
+        row = adapter.execute(
             f"SELECT COUNT(*), COUNT(DISTINCT {col_name}), COUNT(*) - COUNT({col_name}), "
             f"MIN({col_name}), MAX({col_name}) FROM {table}"
-        ).fetchone()
+        )[0]
         total, cardinality, null_cnt, min_v, max_v = row
-        exemplars = [r[0] for r in conn.execute(
+        exemplars = [r[0] for r in adapter.execute(
             f"SELECT DISTINCT {col_name} FROM {table} ORDER BY random() LIMIT 5"
-        ).fetchall()]
+        )]
         profile[col_name] = {
             "type": col_type,
             "cardinality": cardinality,
@@ -105,7 +95,7 @@ def _column_profile(conn, table: str, cols: list[tuple[str, str]]) -> dict:
     return profile
 
 
-def run_semantic_checks(conn, model=None) -> list[Anomaly]:
+def run_semantic_checks(adapter, model=None) -> list[Anomaly]:
     """对每张 DWD 表做列画像 + 数据字典，让 LLM 找语义异常。
 
     model 缺省（None）时跳过——L2 是兜底层、非必需；eval 不传 model 时干净数据不报。
@@ -114,8 +104,8 @@ def run_semantic_checks(conn, model=None) -> list[Anomaly]:
         return []
     anomalies: list[Anomaly] = []
     for table in ("dwd_orders", "dwd_order_items"):
-        cols = conn.execute(f"DESCRIBE {table}").fetchall()
-        profile = _column_profile(conn, table, [(c[0], c[1]) for c in cols])
+        cols = list(adapter.describe_table(table).items())
+        profile = _column_profile(adapter, table, cols)
         codec = TABLE_CODECS.get(table, {})
         prompt = (
             "你是数据质量语义审核员。下面是表的「数据字典」（字段含义 + 合法取值域）和「列画像」"

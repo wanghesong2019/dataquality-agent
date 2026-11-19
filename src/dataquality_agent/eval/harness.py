@@ -21,7 +21,7 @@ def classify_reversibility(anomaly_type: str) -> str:
     return "可逆" if anomaly_type in REVERSIBLE_TYPES else "数据丢失"
 
 
-def apply_remediation(conn, remediation) -> bool:
+def apply_remediation(adapter, remediation) -> bool:
     """在一次性 eval DB 上执行 fix_sql（best-effort），返回是否成功执行。
 
     只执行 action_type == "fix_sql" 且非空的 SQL；去掉 -- 注释行（模型常带说明注释）；
@@ -35,20 +35,20 @@ def apply_remediation(conn, remediation) -> bool:
     if not sql:
         return False
     try:
-        conn.execute(sql)
+        adapter.execute(sql)
         return True
     except Exception:
         return False
 
 
-def remediate_and_recheck(conn, remediations, current_date=None, expected_schema=None) -> list:
+def remediate_and_recheck(adapter, remediations, current_date=None, expected_schema=None) -> list:
     """应用 fix_sql 整改 → 重跑检测，返回修复后的异常列表（复检口径）。
 
     current_date / expected_schema 透传给 run_detection，保证复检和初检用同一基线。
     """
     for r in remediations:
-        apply_remediation(conn, r)
-    return run_detection(conn, current_date=current_date, expected_schema=expected_schema).anomalies
+        apply_remediation(adapter, r)
+    return run_detection(adapter, current_date=current_date, expected_schema=expected_schema).anomalies
 
 
 def remediation_success_by_reversibility(detected_before, detected_after, injected) -> dict:

@@ -56,12 +56,12 @@ from dataquality_agent.detection.runner import run_detection
 from dataquality_agent.observability.tracing import trace_step
 
 
-def make_inspect_node(conn, semantic_model=None):
+def make_inspect_node(adapter, semantic_model=None):
     """返回巡检节点函数。conn/semantic_model 通过闭包注入（不放进 state——state 需可序列化）。"""
     tracer = getattr(semantic_model, "tracer", None)
 
     @trace_step(tracer, "node:inspect")
     def inspect(state):
-        report = run_detection(conn, semantic_model=semantic_model)
+        report = run_detection(adapter, semantic_model=semantic_model)
         return {"anomalies": report.anomalies}
     return inspect

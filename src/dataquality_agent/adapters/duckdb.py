@@ -7,20 +7,25 @@ from dataquality_agent.adapters.base import WarehouseAdapter
 
 
 class DuckDBAdapter(WarehouseAdapter):
-    """基于 DuckDB 文件的适配器（懒连接，可显式 close）。"""
+    """基于 DuckDB 的适配器：可接文件路径（懒连接），也可直接包一个已存在的连接（供注入写+检测读共享同一 conn）。"""
 
-    def __init__(self, path: str | Path):
-        self.path = str(path)
-        self._conn = None
+    def __init__(self, path_or_conn):
+        self._owns_conn = isinstance(path_or_conn, (str, Path))
+        if self._owns_conn:
+            self.path = str(path_or_conn)
+            self._conn = None
+        else:
+            self.path = None
+            self._conn = path_or_conn
 
     def connect(self) -> None:
         if self._conn is None:
             self._conn = duckdb.connect(self.path)
 
     def close(self) -> None:
-        if self._conn is not None:
+        if self._conn is not None and self._owns_conn:
             self._conn.close()
-            self._conn = None
+        self._conn = None
 
     def _ensure(self):
         self.connect()
