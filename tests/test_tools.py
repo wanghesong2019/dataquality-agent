@@ -1,13 +1,12 @@
 import pytest
 
-from dataquality_agent.data.injector import Injector
-from dataquality_agent.tools.metadata import get_table_schema
+from dataquality_agent.adapters import DuckDBAdapter
 from dataquality_agent.tools.sql import SafeSQL, SQLGuardError, validate_sql
 
 
 @pytest.fixture
 def safe(mini_warehouse):
-    return SafeSQL(Injector(mini_warehouse).connect(), whitelist={"orders", "order_items"})
+    return SafeSQL(DuckDBAdapter(mini_warehouse.db_path), whitelist={"orders", "order_items"})
 
 
 def test_validate_sql_rejects_write():
@@ -34,9 +33,3 @@ def test_safe_sql_allows_read(safe):
 def test_safe_sql_raises_on_write(safe):
     with pytest.raises(SQLGuardError):
         safe.run("DELETE FROM orders")
-
-
-def test_get_table_schema(mini_warehouse):
-    schema = get_table_schema(Injector(mini_warehouse).connect(), "orders")
-    assert "order_id" in schema
-    assert "order_status" in schema

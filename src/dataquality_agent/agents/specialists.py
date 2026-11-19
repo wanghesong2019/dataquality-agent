@@ -73,10 +73,10 @@ def make_lineage_agent(model, lineage, max_steps: int = 2):
                             build_lineage_tools(lineage), max_steps)
 
 
-def make_sql_agent(model, conn, sql_whitelist=None, max_steps: int = 4):
+def make_sql_agent(model, adapter, sql_whitelist=None, max_steps: int = 4):
     """SQL 排查专职 Agent：schema + sql 工具。"""
     return _make_specialist("sql", SQL_SPECIALIST_PROMPT, model,
-                            build_sql_tools(conn, sql_whitelist), max_steps)
+                            build_sql_tools(adapter, sql_whitelist), max_steps)
 
 
 def make_cases_agent(model, retriever, max_steps: int = 2):

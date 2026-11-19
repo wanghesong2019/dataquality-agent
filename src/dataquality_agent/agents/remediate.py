@@ -162,13 +162,13 @@ def _remediate_one(anomaly, diagnosis, model, whitelist, max_rounds: int = 3) ->
     return candidate.model_copy(update={"risk_level": "high"})
 
 
-def make_remediate_node(model, conn, max_rounds: int = 3):
-    """返回整改节点函数。model 通过闭包注入（需有 .chat）；conn 用于规则闸门的表白名单。
+def make_remediate_node(model, adapter, max_rounds: int = 3):
+    """返回整改节点函数。model 通过闭包注入（需有 .chat）；adapter 用于规则闸门的表白名单。
 
     Executor 生成方案 → 规则闸门(确定性) + Critic(LLM 语义) 评审，不合格带反馈打回重写；
     超 max_rounds 仍不合格则强制 high 交人工（fail-safe）。
     """
-    whitelist = {t[0] for t in conn.execute("SHOW TABLES").fetchall()}
+    whitelist = set(adapter.list_tables())
     tracer = getattr(model, "tracer", None)
 
     @trace_step(tracer, "node:remediate")

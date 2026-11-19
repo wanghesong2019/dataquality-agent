@@ -15,14 +15,12 @@ class FakeRetriever:
         return [{"id": "orphan_items", "text": "孤儿外键"}]
 
 
-class FakeResult:
-    def fetchall(self):
-        return [("orders",), ("order_items",)]
+class FakeAdapter:
+    def list_tables(self):
+        return ["orders", "order_items"]
 
-
-class FakeConn:
-    def execute(self, sql):
-        return FakeResult()
+    def describe_table(self, table):
+        return {"order_id": "VARCHAR"}
 
 
 def _model_with_tool_call(tool_name, args):
@@ -70,6 +68,6 @@ def test_cases_agent_processes_assigned():
 
 
 def test_sql_agent_processes_assigned():
-    node = make_sql_agent(_model_with_tool_call("schema", {"table": "orders"}), FakeConn())
+    node = make_sql_agent(_model_with_tool_call("schema", {"table": "orders"}), FakeAdapter())
     result = node(_state(["sql"]))
     assert "schema" in result["findings"][0]
