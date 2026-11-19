@@ -41,14 +41,14 @@ def run_detection(conn: duckdb.DuckDBPyConnection,
                   current_date: str | None = None,
                   expected_schema: dict | None = None,
                   zscore_threshold: float = 3.0,
-                  psi_threshold: float = 0.10,
+                  distribution_alpha: float = 0.05,
                   semantic_model=None) -> DetectionReport:
     """跑全部检测（dataset 级 → column 级），返回报告 + 各检查耗时。
 
     - current_date：freshness 的参照日期（ISO 字符串）；缺省 = 数据全局最新水位线（干净数据不误报）。
     - expected_schema：schema 漂移的期望快照 {table: {col: type}}；缺省跳过 schema 检测
       （需要从干净数仓捕获，eval harness 会传入）。
-    - zscore_threshold / psi_threshold：volume 的 z-score 阈值 / distribution 的 PSI 阈值。
+    - zscore_threshold / distribution_alpha：volume 的 z-score 阈值 / distribution 的卡方显著性水平（p < α 判漂移）。
     - semantic_model：L2 语义检测用的 LLM（需有 .chat）；缺省跳过 L2（eval 干净数据不跑）。
     """
     report = DetectionReport()
@@ -88,7 +88,7 @@ def run_detection(conn: duckdb.DuckDBPyConnection,
 
     t0 = time.time()
     report.anomalies += stats.detect_distribution(
-        conn, psi_threshold,
+        conn, distribution_alpha,
         dimensions=(("dwd_orders", "order_status", "order_purchase_timestamp"),
                     ("dwd_reviews", "review_score", "review_creation_date")),
     )

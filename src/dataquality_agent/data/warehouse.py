@@ -35,14 +35,26 @@ class Warehouse:
         built: set[str] = set()
 
         # 1) ODS：原始 CSV 落库（只读 data_dir 里实际存在的文件）
+        # Olist 采集端塌陷死区：2018-08-24 起日单量跌破 100、08-29 后 gmv=0，是采集截断不是真实波动。
+        # orders 按 order_purchase_timestamp 截尾；order_items/payments/reviews 跟着甩掉尾部
+        # （否则它们的 order_id 悬空，会被 check_orphan 误判成孤儿）。见设计文档 4.5。
+        ORDERS_CUTOFF = "2018-08-24"
         for table, filename in ODS_FILES.items():
             path = data_dir / filename
             if path.exists():
+                where = (f" WHERE order_purchase_timestamp < '{ORDERS_CUTOFF}'"
+                         if table == "orders" else "")
                 conn.execute(
                     f"CREATE OR REPLACE TABLE {table} AS "
-                    f"SELECT * FROM read_csv('{path}', header=true, auto_detect=true)"
+                    f"SELECT * FROM read_csv('{path}', header=true, auto_detect=true){where}"
                 )
                 built.add(table)
+        if "orders" in built:
+            for child in ("order_items", "payments", "reviews"):
+                if child in built:
+                    conn.execute(
+                        f"DELETE FROM {child} WHERE order_id NOT IN (SELECT order_id FROM orders)"
+                    )
 
         # 2) DWD：事实表类型转换（时间戳 → TIMESTAMP，金额 → DOUBLE）
         if "orders" in built:

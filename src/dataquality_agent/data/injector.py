@@ -19,6 +19,10 @@ ROOT_CAUSE_CATEGORY = {
     "amount_mismatch": "脏数据注入",    # 支付金额被改偏 → 支付与明细对不上
     "state_conflict": "脏数据注入",     # 状态与评价矛盾（已取消却有评价）
     "zip_inconsistency": "脏数据注入",  # 邮编映射到多个城市
+    "time_inversion": "ETL逻辑变更",    # 交付日期早于下单（时间字段处理错误）
+    "future_date": "脏数据注入",        # 时间戳超出数据采集范围（录入错误）
+    "volume": "业务真实波动(非异常)",    # 日订单量突刺可能是真实业务波动
+    "distribution": "数据倾斜",         # 状态分布漂移
 }
 
 
@@ -77,21 +81,23 @@ class Injector:
             location=f"{len(pks)} rows deleted from {parent_table}",
         )
 
-    def inject_null_rate(self, conn, table: str, column: str, status_col: str,
-                         status_value: str, key_cols: list[str], n: int = 1) -> InjectedAnomaly:
-        """把某 status 组内前 n 行 column 置 NULL，拉高该组 null 率（对应 L0 空值分层检测）。"""
+    def inject_null_rate(self, conn, table: str, column: str, status_col: str | None,
+                         status_value: str | None, key_cols: list[str], n: int = 1) -> InjectedAnomaly:
+        """把前 n 行 column 置 NULL，拉高 null 率。可 status 分层（status_col 给定），也可全表（None）。"""
+        cond = f"{status_col} = '{status_value}' AND " if status_col else ""
         keys = conn.execute(
             f"SELECT {', '.join(key_cols)} FROM {table} "
-            f"WHERE {status_col} = '{status_value}' AND {column} IS NOT NULL LIMIT {n}"
+            f"WHERE {cond}{column} IS NOT NULL LIMIT {n}"
         ).fetchall()
         for key in keys:
             where = " AND ".join(f"{c} = ?" for c in key_cols)
             conn.execute(f"UPDATE {table} SET {column} = NULL WHERE {where}", list(key))
+        label = f"{status_value} " if status_col else ""
         return InjectedAnomaly(
             type="null_rate",
             table=table,
             column=column,
-            root_cause=f"{column} nulled for {status_value} {table} (data entry error)",
+            root_cause=f"{column} nulled for {label}{table} (data entry error)",
             root_cause_category=ROOT_CAUSE_CATEGORY["null_rate"],
             location=f"{len(keys)} rows nulled in {table}.{column}",
         )
@@ -152,6 +158,68 @@ class Injector:
             root_cause=f"{table} 缺失列 {drop_column}（schema 变更）",
             root_cause_category=ROOT_CAUSE_CATEGORY["schema_drift"],
             location=f"column {drop_column} dropped from {table}",
+        )
+
+    def inject_time_inversion(self, conn, n: int = 3,
+                              column: str = "order_delivered_customer_date") -> InjectedAnomaly:
+        """把 n 个订单的某时间字段改到下单之前，制造时间倒挂（column 可扩到预估送达等）。"""
+        orders = conn.execute(
+            f"SELECT order_id FROM orders WHERE {column} IS NOT NULL LIMIT ?", [n]
+        ).fetchall()
+        for (order_id,) in orders:
+            conn.execute(
+                f"UPDATE orders SET {column} = order_purchase_timestamp - INTERVAL 5 DAY "
+                f"WHERE order_id = ?", [order_id]
+            )
+        return InjectedAnomaly(
+            type="time_inversion", table="orders", column=column,
+            root_cause=f"{len(orders)} rows {column} set before purchase",
+            root_cause_category=ROOT_CAUSE_CATEGORY["time_inversion"],
+            location=f"{len(orders)} rows time-inverted in orders.{column}",
+        )
+
+    def inject_future_date(self, conn, n: int = 3) -> InjectedAnomaly:
+        """把 n 个订单的下单时间戳改到 2020（超出 Olist 采集范围），制造未来日期。"""
+        orders = conn.execute("SELECT order_id FROM orders LIMIT ?", [n]).fetchall()
+        for (order_id,) in orders:
+            conn.execute(
+                "UPDATE orders SET order_purchase_timestamp = DATE '2020-01-01' WHERE order_id = ?",
+                [order_id]
+            )
+        return InjectedAnomaly(
+            type="future_date", table="orders", column="order_purchase_timestamp",
+            root_cause=f"{len(orders)} rows order_purchase_timestamp set to 2020",
+            root_cause_category=ROOT_CAUSE_CATEGORY["future_date"],
+            location=f"{len(orders)} rows set to future date",
+        )
+
+    def inject_volume_spike(self, conn, metric: str = "orders", multiplier: float = 10.0) -> InjectedAnomaly:
+        """把 daily_metrics 最新一天的指标放大 multiplier 倍，制造 volume 突刺（z-score 超阈值）。"""
+        conn.execute(
+            f"UPDATE daily_metrics SET {metric} = {metric} * {multiplier} "
+            f"WHERE order_date = (SELECT MAX(order_date) FROM daily_metrics)"
+        )
+        return InjectedAnomaly(
+            type="volume", table="daily_metrics", column=metric,
+            root_cause=f"latest day {metric} spiked ×{multiplier}",
+            root_cause_category=ROOT_CAUSE_CATEGORY["volume"],
+            location=f"latest daily_metrics.{metric} multiplied by {multiplier}",
+        )
+
+    def inject_distribution_drift(self, conn, table: str = "dwd_orders",
+                                  cat_col: str = "order_status",
+                                  date_col: str = "order_purchase_timestamp",
+                                  bad_value: str = "canceled") -> InjectedAnomaly:
+        """把最新一天某分类列的值全改成 bad_value，制造分布漂移（PSI 超阈值）。"""
+        conn.execute(
+            f"UPDATE {table} SET {cat_col} = '{bad_value}' "
+            f"WHERE {date_col}::DATE = (SELECT MAX({date_col}::DATE) FROM {table})"
+        )
+        return InjectedAnomaly(
+            type="distribution", table=table, column=cat_col,
+            root_cause=f"latest day {cat_col} drifted to {bad_value}",
+            root_cause_category=ROOT_CAUSE_CATEGORY["distribution"],
+            location=f"latest {table}.{cat_col} set to {bad_value}",
         )
 
     def inject_amount_mismatch(self, conn, n: int = 1, delta: float = 100.0) -> InjectedAnomaly:
@@ -225,8 +293,8 @@ class Injector:
             elif t == "null_rate":
                 gt.injections.append(
                     self.inject_null_rate(
-                        conn, spec["table"], spec["column"], spec["status_col"],
-                        spec["status_value"], spec["key_cols"], spec.get("n", 1),
+                        conn, spec["table"], spec["column"], spec.get("status_col"),
+                        spec.get("status_value"), spec["key_cols"], spec.get("n", 1),
                     )
                 )
             elif t == "value_range":
@@ -240,6 +308,17 @@ class Injector:
                 gt.injections.append(
                     self.inject_lineage_break(conn, spec["table"], spec["date_col"], spec.get("n", 1))
                 )
+                # 语义重叠：删下游表最近 n 天，同时造成「落后上游」（lineage_break）和
+                # 「落后当前日期」（freshness）——两个口径对同一事实的不同视角，都是正确检测。
+                # ground-truth 同时标注 freshness，避免把正确的 freshness 检测误判成 FP。
+                gt.injections.append(InjectedAnomaly(
+                    type="freshness",
+                    table=spec["table"],
+                    column=spec["date_col"],
+                    root_cause=f"{spec['table']} 停更（语义重叠于 lineage_break）",
+                    root_cause_category=ROOT_CAUSE_CATEGORY["freshness"],
+                    location=f"recent {spec.get('n', 1)} days deleted from {spec['table']}",
+                ))
             elif t == "freshness":
                 gt.injections.append(
                     self.inject_freshness(conn, spec["table"], spec["date_col"], spec.get("n", 1))
@@ -256,6 +335,17 @@ class Injector:
                 gt.injections.append(self.inject_state_conflict(conn, spec.get("n", 1)))
             elif t == "zip_inconsistency":
                 gt.injections.append(self.inject_zip_inconsistency(conn, spec.get("n", 1)))
+            elif t == "time_inversion":
+                gt.injections.append(self.inject_time_inversion(
+                    conn, spec.get("n", 1), spec.get("column", "order_delivered_customer_date")))
+            elif t == "future_date":
+                gt.injections.append(self.inject_future_date(conn, spec.get("n", 1)))
+            elif t == "volume":
+                gt.injections.append(
+                    self.inject_volume_spike(conn, spec.get("metric", "orders"), spec.get("multiplier", 10.0))
+                )
+            elif t == "distribution":
+                gt.injections.append(self.inject_distribution_drift(conn))
             else:
                 raise ValueError(f"unknown injection type: {t}")
         return gt

@@ -9,9 +9,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from dataquality_agent.agents.diagnose import make_diagnose_node
+from dataquality_agent.agents.diagnose import make_aggregate_diagnose_node
 from dataquality_agent.agents.remediate import make_remediate_node
-from dataquality_agent.agents.tooling import build_diagnose_tools
+from dataquality_agent.agents.specialists import make_cases_agent, make_lineage_agent, make_sql_agent
+from dataquality_agent.agents.supervisor import make_triage_node
 from dataquality_agent.config import Settings, load_env
 from dataquality_agent.data.injector import Injector
 from dataquality_agent.data.lineage import Lineage
@@ -24,7 +25,7 @@ from dataquality_agent.eval.harness import (
 )
 from dataquality_agent.llm import DeepSeekClient, LLMAdapter
 from dataquality_agent.observability.tracing import Tracer
-from dataquality_agent.rag.cases import build_retriever
+from dataquality_agent.rag.cases import build_retriever, make_flywheel_case, persist_flywheel_cases
 
 
 # 注入计划：可逆（duplicate/value_range）+ 数据丢失（orphan/null_rate），n 按真实数据量定。
@@ -38,7 +39,51 @@ INJECTION_SPECS = [
     {"type": "value_range", "table": "order_items", "column": "price", "key_cols": ["order_id", "order_item_id"], "n": 3},
     {"type": "null_rate", "table": "orders", "column": "order_delivered_customer_date",
      "status_col": "order_status", "status_value": "delivered", "key_cols": ["order_id"], "n": 6000},
+    # Tier 1 新增：injector 已有方法 + 检测已有，补 L1 端到端 F1 + FK 网覆盖。
+    # 注：amount/state/zip 三类是 always-on（真实数据自带，注入 F1 平凡），不注入；
+    #     freshness 与 lineage_break 都动水位线、会互相干扰，本轮先注入 lineage_break，freshness 单独测。
+    {"type": "orphan", "child_table": "order_items", "parent_table": "sellers",
+     "parent_pk": "seller_id", "child_fk": "seller_id", "n": 20},
+    {"type": "lineage_break", "table": "daily_metrics", "date_col": "order_date", "n": 2},
+    {"type": "schema_drift", "table": "dwd_orders", "drop_column": "order_approved_at"},
+    # Tier 2 新增：扩 duplicate/value_range/null 到更多表列（检测规则 + 注入 spec 同步扩）
+    {"type": "duplicate", "table": "payments", "key_cols": ["order_id", "payment_sequential"], "n": 3},
+    {"type": "duplicate", "table": "reviews", "key_cols": ["review_id"], "n": 3},
+    {"type": "value_range", "table": "reviews", "column": "review_score", "key_cols": ["review_id"], "n": 3, "bad_value": 6},
+    {"type": "value_range", "table": "payments", "column": "payment_installments", "key_cols": ["order_id", "payment_sequential"], "n": 3, "bad_value": 0},
+    {"type": "value_range", "table": "products", "column": "product_weight_g", "key_cols": ["product_id"], "n": 3, "bad_value": -5.0},
+    {"type": "null_rate", "table": "orders", "column": "customer_id", "key_cols": ["order_id"], "n": 20},
+    # Tier 3 新增：时间倒挂 + 未来日期（新 L0 规则 + 新注入方法）
+    {"type": "time_inversion", "n": 3},
+    {"type": "future_date", "n": 3},
+    # 4.4 策展摊平：稀有根因类别各补注入（孤儿 orders→customers、schema 第二列、时间倒挂第二列），
+    # 让案例库每类根因 ≥2，摊平「脏数据注入」的头部优势。
+    {"type": "orphan", "child_table": "orders", "parent_table": "customers",
+     "parent_pk": "customer_id", "child_fk": "customer_id", "n": 20},
+    {"type": "schema_drift", "table": "dwd_orders", "drop_column": "order_delivered_carrier_date"},
+    {"type": "time_inversion", "n": 3, "column": "order_estimated_delivery_date"},
+    # 4.5 retention-window 截尾：warehouse.py 已把 orders 截到 2018-08-24 前（最新日 08-23 单量 144 ≥ min_count），
+    # volume/distribution 在「最新一天」口径下能端到端触发，纳回 INJECTION_SPECS。
+    {"type": "volume"},
+    {"type": "distribution"},
 ]
+
+
+def _supervisor_diagnose(adapter, diagnose_targets, eval_conn, retriever) -> list:
+    """Supervisor 版归因：分诊 + 3 专职 Agent（各处理分给自己的子集）+ 聚合。"""
+    triage = make_triage_node(adapter)
+    lineage_agent = make_lineage_agent(adapter, Lineage())
+    sql_agent = make_sql_agent(adapter, eval_conn)
+    cases_agent = make_cases_agent(adapter, retriever)
+    aggregate = make_aggregate_diagnose_node(adapter)
+
+    state = {"anomalies": diagnose_targets}
+    state.update(triage(state))
+    state.update(lineage_agent(state))
+    state.update(sql_agent(state))
+    state.update(cases_agent(state))
+    return aggregate(state)["diagnoses"]
+
 
 def main() -> None:
     load_env(ROOT / ".env")
@@ -69,11 +114,11 @@ def main() -> None:
     inj_keys = {(i.type, i.table) for i in injected}
     diagnose_targets = [a for a in detected_before if (a.type, a.table) in inj_keys]
 
-    # 4) 归因 + 整改（DeepSeek function calling）——只处理注入目标
+    # 4) 归因（Supervisor 分诊 + 3 专职 Agent + 聚合）+ 整改（DeepSeek function calling）
     tracer = Tracer()
     adapter = LLMAdapter(DeepSeekClient(temperature=0), tracer=tracer)
-    tools = build_diagnose_tools(eval_conn, Lineage(), build_retriever(), tracer=tracer)
-    diagnoses = make_diagnose_node(adapter, tools)({"anomalies": diagnose_targets})["diagnoses"]
+    retriever = build_retriever()
+    diagnoses = _supervisor_diagnose(adapter, diagnose_targets, eval_conn, retriever)
     remediations = make_remediate_node(adapter, eval_conn)(
         {"anomalies": diagnose_targets, "diagnoses": diagnoses})["remediations"]
 
@@ -85,6 +130,11 @@ def main() -> None:
                       detection_report.stats, adapter.cost_ledger, llm_seconds=tracer.root_duration(),
                       baseline=baseline, detected_all=detected_before)
     by_rev = remediation_success_by_reversibility(diagnose_targets, detected_after, injected)
+
+    # 数据飞轮写入侧：注入异常 → 案例回流（含 ground-truth 根因类别 + desc/remedy，id 唯一化）
+    flywheel_cases = [make_flywheel_case(inj) for inj in injected]
+    persist_flywheel_cases(flywheel_cases)
+    print(f"[flywheel] {len(flywheel_cases)} 条注入异常已回流案例库")
 
     print("=" * 64)
     print(f"检测 P/R/F1：P={report.detection.precision:.3f} R={report.detection.recall:.3f} F1={report.detection.f1:.3f}")
