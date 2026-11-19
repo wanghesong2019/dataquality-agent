@@ -1,14 +1,17 @@
+import sqlite3
+
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 
 from dataquality_agent.agents.graph import build_graph
 from dataquality_agent.agents.hitl import make_approve_node
 from dataquality_agent.api.main import create_app
-from dataquality_agent.api.runtime import PatrolRuntime
+from dataquality_agent.api.runtime import PatrolRuntime, RunStore
 from dataquality_agent.models import Anomaly, Diagnosis, Remediation, Report
 
 
-def _mock_graph(high_risk=True):
+def _mock_graph(high_risk=True, checkpointer=None):
     def inspect(state):
         return {"anomalies": [Anomaly(type="orphan", table="order_items")]}
 
@@ -22,7 +25,12 @@ def _mock_graph(high_risk=True):
     def report(state):
         return {"report": Report(summary="done")}
 
-    return build_graph(inspect, diagnose, remediate, make_approve_node(), report, checkpointer=MemorySaver())
+    return build_graph(inspect, diagnose, remediate, make_approve_node(), report,
+                       checkpointer=checkpointer or MemorySaver())
+
+
+def _persistent_graph(checkpoint_path):
+    return _mock_graph(high_risk=True, checkpointer=SqliteSaver(sqlite3.connect(checkpoint_path, check_same_thread=False)))
 
 
 def test_patrol_awaiting_approval_and_resume():
@@ -66,3 +74,25 @@ def test_static_frontend_served(tmp_path):
     resp = client.get("/")
     assert resp.status_code == 200
     assert "dashboard" in resp.text
+
+
+def test_restart_recovery(tmp_path):
+    """进程重启后（同一 checkpoint 文件 + RunStore），list_runs 仍能列出、approve 仍能恢复。"""
+    cp = str(tmp_path / "cp.sqlite")
+    store = str(tmp_path / "runs.sqlite")
+
+    r1 = PatrolRuntime(_persistent_graph(cp), RunStore(store))
+    r1.trigger("abc")
+
+    # 模拟重启：新 runtime 实例，同一 checkpoint + RunStore 文件
+    r2 = PatrolRuntime(_persistent_graph(cp), RunStore(store))
+    assert "abc" in r2.list_runs()
+    r2.approve("abc", {"0": "approved"})
+    assert r2.get("abc")["status"] == "completed"
+
+
+def test_runstore_empty(tmp_path):
+    """空 RunStore（Review Focus #3）：list_ids 为空、load 未知 run 返回 None。"""
+    store = RunStore(str(tmp_path / "runs.sqlite"))
+    assert store.list_ids() == []
+    assert store.load("nope") is None

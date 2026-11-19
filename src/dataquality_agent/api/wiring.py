@@ -14,7 +14,7 @@ from dataquality_agent.agents.remediate import make_remediate_node
 from dataquality_agent.agents.report import make_report_node
 from dataquality_agent.agents.specialists import make_cases_agent, make_lineage_agent, make_sql_agent
 from dataquality_agent.agents.supervisor import make_triage_node
-from dataquality_agent.api.runtime import PatrolRuntime
+from dataquality_agent.api.runtime import PatrolRuntime, RunStore
 from dataquality_agent.config import Settings
 from dataquality_agent.data.lineage import Lineage
 from dataquality_agent.data.warehouse import Warehouse
@@ -63,4 +63,5 @@ def build_runtime(settings: Settings | None = None) -> PatrolRuntime:
         make_report_node(adapter),
         checkpointer=checkpointer,
     )
-    return PatrolRuntime(graph)
+    run_store = RunStore(str(Path(settings.checkpoint_path).with_name("runs.sqlite")))
+    return PatrolRuntime(graph, run_store)
