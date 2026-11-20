@@ -64,6 +64,20 @@ def test_all_l0_anomalies_carry_evidence(mini_warehouse):
         assert a.evidence.rows or (a.evidence.expected or a.evidence.actual), f"{a.type} 无任何证据内容"
 
 
+def test_sample_offending_swallows_adapter_errors():
+    """采样查询自身报错时返回空列表，不崩整次巡检（Review Focus #1 单检测器隔离）。"""
+    from dataquality_agent.detection.rules import sample_offending
+
+    class BoomAdapter:
+        def describe_table(self, table):
+            return {"a": "INTEGER"}
+
+        def execute(self, sql, max_rows=None):
+            raise RuntimeError("boom")
+
+    assert sample_offending(BoomAdapter(), "orders", "a < 0") == []
+
+
 def test_detect_orphan(mini_warehouse):
     inj = Injector(mini_warehouse)
     conn = inj.connect()

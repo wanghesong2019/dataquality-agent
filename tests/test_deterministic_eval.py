@@ -15,5 +15,6 @@ def test_eval_asserts_evidence_completeness(mini_warehouse):
     assert report.detection.f1 == 1.0
     assert report.anomalies, "确定性 eval 应暴露检测到的异常"
     for a in report.anomalies:
-        assert a.evidence.query.strip(), f"{a.type} 的 query 为空"
+        # L0 行型规则有 query+rows；L1 统计无命中行，靠 expected/actual（对齐计划 Task 3「query 或 expected/actual 非空」）
+        assert a.evidence.query.strip() or (a.evidence.expected and a.evidence.actual), f"{a.type} 无证据"
         assert a.evidence.rows is None or len(a.evidence.rows) <= 20

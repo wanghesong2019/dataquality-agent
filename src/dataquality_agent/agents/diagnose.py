@@ -278,6 +278,7 @@ def _thin_diagnose_one(anomaly: Anomaly, model, adapter, lineage, retriever) -> 
                 args = json.loads(call["function"]["arguments"])
                 args.pop("evidence_chain", None)   # 丢弃自述，证据链以脚本装配的为准
                 args.pop("matched_cases", None)
+                args.pop("evidence", None)         # 丢弃自述，结构化证据以 anomaly.evidence 为准
                 return Diagnosis(**args, evidence_chain=evidence, evidence=[anomaly.evidence])
             except Exception:
                 break

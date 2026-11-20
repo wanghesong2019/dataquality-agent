@@ -10,8 +10,12 @@ def sample_offending(adapter, table: str, where_sql: str, limit: int = 20) -> li
     cols = list(adapter.describe_table(table).keys())
     if not cols:
         return []
-    rows = adapter.execute(f"SELECT * FROM {table} WHERE {where_sql} LIMIT {limit}", max_rows=limit)
-    return [dict(zip(cols, r)) for r in rows]
+    try:
+        rows = adapter.execute(f"SELECT * FROM {table} WHERE {where_sql} LIMIT {limit}", max_rows=limit)
+        return [dict(zip(cols, r)) for r in rows]
+    except Exception:
+        # 采样是增强步骤：报错不崩整次巡检（单检测器隔离），返回空列表，异常仍带 query + expected/actual
+        return []
 
 
 def check_duplicate(adapter, table: str, key_cols: list[str]) -> list[Anomaly]:

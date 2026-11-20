@@ -61,3 +61,28 @@ def test_thin_diagnose_returns_diagnosis_with_evidence(mini_warehouse):
     d = out["diagnoses"][0]
     assert d.root_cause_category == "脏数据注入"
     assert isinstance(d.evidence, list) and isinstance(d.evidence[0], Evidence)
+
+
+def test_thin_diagnose_ignores_model_evidence(mini_warehouse):
+    """模型自述 evidence 时不得重复传关键字（否则 TypeError 被误降级为「未知」）。"""
+    from dataquality_agent.agents.diagnose import make_thin_diagnose_node
+
+    class FakeModel:
+        tracer = None
+
+        def chat(self, messages, tools=None, tool_choice=None, response_format=None):
+            return {"content": "", "tool_calls": [
+                {"id": "1", "function": {"name": "submit_diagnosis",
+                                         "arguments": json.dumps({
+                                             "root_cause_category": "脏数据注入",
+                                             "confidence": 0.9,
+                                             "evidence": [{"query": "模型自述的假证据"}],
+                                         })}}
+            ]}
+
+    node = make_thin_diagnose_node(FakeModel(), _adapter(mini_warehouse), Lineage(), build_retriever())
+    a = Anomaly(type="duplicate", table="orders", column="order_id",
+                evidence=Evidence(query="SELECT * FROM orders WHERE ...", rows=[{"order_id": "o1"}]))
+    d = node({"anomalies": [a]})["diagnoses"][0]
+    assert d.root_cause_category == "脏数据注入"  # 正确解析，不 fallback
+    assert isinstance(d.evidence, list) and isinstance(d.evidence[0], Evidence)  # 以脚本装配为准，非模型自述
