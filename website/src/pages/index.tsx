@@ -65,7 +65,6 @@ export default function Home(): ReactNode {
             <span />
             <span />
             <span />
-            <span className={styles.terminalTitle}>dqagent</span>
           </div>
           <pre className={styles.terminalBody}>{QUICKSTART}</pre>
         </div>

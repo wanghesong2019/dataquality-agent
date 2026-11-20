@@ -79,12 +79,6 @@
   background: #6bb77a;
 }
 
-.terminalTitle {
-  margin-left: 0.5rem;
-  font-size: 0.75rem;
-  color: var(--ifm-color-emphasis-600);
-}
-
 .terminalBody {
   margin: 0;
   padding: 1.1rem 1.2rem;
