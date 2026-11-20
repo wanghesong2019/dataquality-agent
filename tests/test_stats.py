@@ -1,3 +1,6 @@
+import duckdb
+
+from dataquality_agent.adapters import DuckDBAdapter
 from dataquality_agent.data.lineage import Lineage
 from dataquality_agent.detection.stats import (
     zscore_detect, chi2_drift, check_freshness, schema_diff, detect_lineage_break,
@@ -12,27 +15,21 @@ def test_zscore_detect_normal_and_spike():
 
 
 def test_zscore_detect_constant_baseline():
-    # 基线恒定（std=0）时不应误报
     assert zscore_detect(100, [100, 100, 100], 3.0) is False
 
 
 def test_chi2_drift_similar_and_shifted():
     base = {"delivered": 90, "canceled": 10}
-    # 相似分布 → p 大（不漂移）
     assert chi2_drift({"delivered": 90, "canceled": 10}, base) > 0.05
-    # 明显漂移 → p 小
     assert chi2_drift({"delivered": 10, "canceled": 90}, base) < 0.05
 
 
 def test_chi2_drift_new_category():
-    # 基线没有的新类别突然出现 → 明确漂移（p≈0）
     assert chi2_drift({"new_type": 50, "delivered": 50}, {"delivered": 100}) == 0.0
 
 
 def test_check_freshness():
-    # 最新日期 = 当前日期 → 不报停更
     assert check_freshness(["2018-01-01", "2018-01-02", "2018-01-03"], "2018-01-03") is False
-    # 最新日期落后当前 3 天 → 报停更
     assert check_freshness(["2018-01-01", "2018-01-02"], "2018-01-05") is True
 
 
@@ -61,7 +58,6 @@ def test_lineage_break_no_lag():
 def test_detect_freshness():
     watermarks = {"orders": "2018-01-01", "daily_metrics": "2018-01-05"}
     anomalies = detect_freshness(watermarks, "2018-01-06", max_gap_days=1)
-    # orders 落后 5 天 → 报；daily_metrics 落后 1 天 → 不报
     assert {a.type: a.table for a in anomalies} == {"freshness": "orders"}
 
 
@@ -74,23 +70,21 @@ def test_detect_schema_drift():
     assert "removed:b" in anomalies[0].evidence
 
 
-def _volume_conn():
-    import duckdb
+def _volume_adapter():
     conn = duckdb.connect()
     conn.execute("CREATE TABLE daily_metrics (order_date DATE, orders INTEGER)")
     for i in range(7):
         conn.execute("INSERT INTO daily_metrics VALUES (?, ?)", [f"2018-01-0{i + 1}", 100 + i * 5])
     conn.execute("INSERT INTO daily_metrics VALUES ('2018-01-08', 300)")  # 最后一天 spike
-    return conn
+    return DuckDBAdapter(conn)
 
 
 def test_detect_volume_spike():
-    assert detect_volume(_volume_conn(), threshold=3.0) != []   # spike 应被 z-score 检出
-    assert detect_volume(_volume_conn(), threshold=50.0) == []  # 阈值极高，不报
+    assert detect_volume(_volume_adapter(), threshold=3.0) != []   # spike 应被 z-score 检出
+    assert detect_volume(_volume_adapter(), threshold=50.0) == []  # 阈值极高，不报
 
 
-def _dist_conn():
-    import duckdb
+def _dist_adapter():
     conn = duckdb.connect()
     conn.execute("CREATE TABLE dwd_orders (order_purchase_timestamp TIMESTAMP, order_status VARCHAR)")
     for _ in range(90):
@@ -99,71 +93,62 @@ def _dist_conn():
         conn.execute("INSERT INTO dwd_orders VALUES ('2018-01-01 10:00:00', 'canceled')")
     for _ in range(100):
         conn.execute("INSERT INTO dwd_orders VALUES ('2018-01-02 10:00:00', 'canceled')")  # 最后一天全 canceled（漂移）
-    return conn
+    return DuckDBAdapter(conn)
 
 
 def test_detect_distribution_shift():
-    assert detect_distribution(_dist_conn(), alpha=0.05) != []  # 明显漂移应被卡方检出
+    assert detect_distribution(_dist_adapter(), alpha=0.05) != []
 
 
-def _dist_conn_similar():
-    import duckdb
+def _dist_adapter_similar():
     conn = duckdb.connect()
     conn.execute("CREATE TABLE dwd_orders (order_purchase_timestamp TIMESTAMP, order_status VARCHAR)")
-    # 两天同分布：90 delivered + 10 canceled，无漂移
     for day in ("2018-01-01 10:00:00", "2018-01-02 10:00:00"):
         for _ in range(90):
             conn.execute("INSERT INTO dwd_orders VALUES (?, 'delivered')", [day])
         for _ in range(10):
             conn.execute("INSERT INTO dwd_orders VALUES (?, 'canceled')", [day])
-    return conn
+    return DuckDBAdapter(conn)
 
 
 def test_detect_distribution_no_shift():
-    assert detect_distribution(_dist_conn_similar(), alpha=0.05) == []  # 同分布，不报
+    assert detect_distribution(_dist_adapter_similar(), alpha=0.05) == []
 
 
-def _dist_conn_small_tail():
-    import duckdb
+def _dist_adapter_small_tail():
     conn = duckdb.connect()
     conn.execute("CREATE TABLE dwd_orders (order_purchase_timestamp TIMESTAMP, order_status VARCHAR)")
     for _ in range(100):
         conn.execute("INSERT INTO dwd_orders VALUES ('2018-01-01 10:00:00', 'delivered')")
-    conn.execute("INSERT INTO dwd_orders VALUES ('2018-01-02 10:00:00', 'canceled')")  # 最新一天仅 1 单（尾部塌陷）
-    return conn
+    conn.execute("INSERT INTO dwd_orders VALUES ('2018-01-02 10:00:00', 'canceled')")
+    return DuckDBAdapter(conn)
 
 
 def test_detect_distribution_min_count_skip():
-    assert detect_distribution(_dist_conn_small_tail(), alpha=0.05) == []  # 最新一天样本不足，跳过
+    assert detect_distribution(_dist_adapter_small_tail(), alpha=0.05) == []
 
 
 def test_detect_volume_multi_metric():
-    """volume 多基线：orders + gmv 两个指标同时 spike，都应被 z-score 检出。"""
-    import duckdb
     conn = duckdb.connect()
     conn.execute("CREATE TABLE daily_metrics (order_date DATE, orders INTEGER, gmv DOUBLE)")
     for i in range(7):
         conn.execute("INSERT INTO daily_metrics VALUES (?, ?, ?)",
                      [f"2018-01-0{i + 1}", 100 + i * 5, 1000.0 + i * 50])
-    conn.execute("INSERT INTO daily_metrics VALUES ('2018-01-08', 300, 3000.0)")  # 双指标同 spike
-    anomalies = detect_volume(conn, threshold=3.0, metrics=("orders", "gmv"))
+    conn.execute("INSERT INTO daily_metrics VALUES ('2018-01-08', 300, 3000.0)")
+    anomalies = detect_volume(DuckDBAdapter(conn), threshold=3.0, metrics=("orders", "gmv"))
     assert {a.column for a in anomalies} == {"orders", "gmv"}
 
 
 def test_detect_distribution_multi_dim():
-    """distribution 多基线：order_status + review_score 两个维度同时漂移，都应被 PSI 检出。"""
-    import duckdb
     conn = duckdb.connect()
     conn.execute("CREATE TABLE dwd_orders (order_purchase_timestamp TIMESTAMP, order_status VARCHAR)")
     conn.execute("CREATE TABLE dwd_reviews (review_creation_date TIMESTAMP, review_score INTEGER)")
-    # dwd_orders：最后一天全 canceled（漂移）
     for _ in range(90):
         conn.execute("INSERT INTO dwd_orders VALUES ('2018-01-01 10:00:00', 'delivered')")
     for _ in range(10):
         conn.execute("INSERT INTO dwd_orders VALUES ('2018-01-01 10:00:00', 'canceled')")
     for _ in range(100):
         conn.execute("INSERT INTO dwd_orders VALUES ('2018-01-02 10:00:00', 'canceled')")
-    # dwd_reviews：最后一天全 1 分（漂移）
     for _ in range(90):
         conn.execute("INSERT INTO dwd_reviews VALUES ('2018-01-01 10:00:00', 5)")
     for _ in range(10):
@@ -172,18 +157,16 @@ def test_detect_distribution_multi_dim():
         conn.execute("INSERT INTO dwd_reviews VALUES ('2018-01-02 10:00:00', 1)")
     dims = (("dwd_orders", "order_status", "order_purchase_timestamp"),
             ("dwd_reviews", "review_score", "review_creation_date"))
-    anomalies = detect_distribution(conn, alpha=0.05, dimensions=dims)
+    anomalies = detect_distribution(DuckDBAdapter(conn), alpha=0.05, dimensions=dims)
     assert {(a.table, a.column) for a in anomalies} == {
         ("dwd_orders", "order_status"), ("dwd_reviews", "review_score"),
     }
 
 
 def test_detect_volume_min_count_skip():
-    """最新一天样本不足（尾部塌陷半拉日）→ 显式跳过，不硬跑 z-score 防截断误判量崩。"""
-    import duckdb
     conn = duckdb.connect()
     conn.execute("CREATE TABLE daily_metrics (order_date DATE, orders INTEGER)")
     for i in range(7):
         conn.execute("INSERT INTO daily_metrics VALUES (?, ?)", [f"2018-01-0{i + 1}", 500 + i * 10])
     conn.execute("INSERT INTO daily_metrics VALUES ('2018-01-08', 1)")  # 最新一天仅 1 单
-    assert detect_volume(conn, threshold=3.0) == []
+    assert detect_volume(DuckDBAdapter(conn), threshold=3.0) == []

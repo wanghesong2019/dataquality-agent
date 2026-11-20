@@ -2,35 +2,35 @@
 from dataquality_agent.models import Anomaly
 
 
-def check_duplicate(conn, table: str, key_cols: list[str]) -> list[Anomaly]:
+def check_duplicate(adapter, table: str, key_cols: list[str]) -> list[Anomaly]:
     key = ", ".join(key_cols)
-    n = conn.execute(
+    n = adapter.execute(
         f"SELECT COUNT(*) FROM (SELECT {key} FROM {table} GROUP BY {key} HAVING COUNT(*) > 1)"
-    ).fetchone()[0]
+    )[0][0]
     if n > 0:
         return [Anomaly(type="duplicate", table=table, column=key, evidence=f"{n} 组重复键")]
     return []
 
 
-def check_orphan(conn, child: str, parent: str, child_fk: str, parent_pk: str) -> list[Anomaly]:
+def check_orphan(adapter, child: str, parent: str, child_fk: str, parent_pk: str) -> list[Anomaly]:
     # 口径：孤儿 = 非空外键但在父表找不到对应行；NULL 外键是「空值问题」（null_rate）不是「孤儿问题」，用 IS NOT NULL 排除。
-    n = conn.execute(
+    n = adapter.execute(
         f"SELECT COUNT(*) FROM {child} c LEFT JOIN {parent} p ON c.{child_fk} = p.{parent_pk} "
         f"WHERE p.{parent_pk} IS NULL AND c.{child_fk} IS NOT NULL"
-    ).fetchone()[0]
+    )[0][0]
     if n > 0:
         return [Anomaly(type="orphan", table=child, column=child_fk, evidence=f"{n} 行孤儿外键")]
     return []
 
 
-def check_negative(conn, table: str, column: str) -> list[Anomaly]:
-    n = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {column} < 0").fetchone()[0]
+def check_negative(adapter, table: str, column: str) -> list[Anomaly]:
+    n = adapter.execute(f"SELECT COUNT(*) FROM {table} WHERE {column} < 0")[0][0]
     if n > 0:
         return [Anomaly(type="value_range", table=table, column=column, evidence=f"{n} 行负值")]
     return []
 
 
-def check_value_range(conn, table: str, column: str, min_val=None, max_val=None) -> list[Anomaly]:
+def check_value_range(adapter, table: str, column: str, min_val=None, max_val=None) -> list[Anomaly]:
     """值域检查：column 不在 [min_val, max_val]（min/max 可 None 表示无界）。"""
     conds = []
     if min_val is not None:
@@ -39,23 +39,20 @@ def check_value_range(conn, table: str, column: str, min_val=None, max_val=None)
         conds.append(f"{column} > {max_val}")
     if not conds:
         return []
-    n = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {' OR '.join(conds)}").fetchone()[0]
+    n = adapter.execute(f"SELECT COUNT(*) FROM {table} WHERE {' OR '.join(conds)}")[0][0]
     if n > 0:
         return [Anomaly(type="value_range", table=table, column=column,
                         evidence=f"{n} 行超出值域 [{min_val}, {max_val}]")]
     return []
 
 
-def check_time_inversion(conn, column: str = "order_delivered_customer_date",
+def check_time_inversion(adapter, column: str = "order_delivered_customer_date",
                          label: str = "交付日期早于下单日期") -> list[Anomaly]:
-    """时间倒挂：某时间字段早于下单日期（< purchase），逻辑矛盾。
-
-    column 可扩多个时间字段（交付日期、预估送达日期等），都判「时间逻辑错误」→ ETL逻辑变更。
-    """
-    n = conn.execute(
+    """时间倒挂：某时间字段早于下单日期（< purchase），逻辑矛盾。"""
+    n = adapter.execute(
         f"SELECT COUNT(*) FROM orders WHERE {column} IS NOT NULL "
         f"AND {column} < order_purchase_timestamp"
-    ).fetchone()[0]
+    )[0][0]
     if n > 0:
         return [Anomaly(type="time_inversion", table="orders",
                         column=column,
@@ -63,11 +60,11 @@ def check_time_inversion(conn, column: str = "order_delivered_customer_date",
     return []
 
 
-def check_future_date(conn, max_date: str = "2018-12-31") -> list[Anomaly]:
+def check_future_date(adapter, max_date: str = "2018-12-31") -> list[Anomaly]:
     """未来日期：下单时间戳超出数据采集范围（Olist 止于 2018，超 max_date 判异常）。"""
-    n = conn.execute(
+    n = adapter.execute(
         f"SELECT COUNT(*) FROM orders WHERE order_purchase_timestamp > DATE '{max_date}'"
-    ).fetchone()[0]
+    )[0][0]
     if n > 0:
         return [Anomaly(type="future_date", table="orders",
                         column="order_purchase_timestamp",
@@ -75,15 +72,15 @@ def check_future_date(conn, max_date: str = "2018-12-31") -> list[Anomaly]:
     return []
 
 
-def check_null_rate(conn, table: str, column: str, status_col: str | None = None,
+def check_null_rate(adapter, table: str, column: str, status_col: str | None = None,
                     status_value: str | None = None, threshold: float = 0.05) -> list[Anomaly]:
     """空值检查——可 status 分层（status_col 给定），也可全表（status_col=None）。"""
     cond = f"{status_col} = '{status_value}'" if status_col else "1=1"
     label = f"{status_value} 组" if status_col else "全表"
-    total = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {cond}").fetchone()[0]
-    null_cnt = conn.execute(
+    total = adapter.execute(f"SELECT COUNT(*) FROM {table} WHERE {cond}")[0][0]
+    null_cnt = adapter.execute(
         f"SELECT COUNT(*) FROM {table} WHERE {cond} AND {column} IS NULL"
-    ).fetchone()[0]
+    )[0][0]
     if total > 0 and null_cnt / total > threshold:
         rate = null_cnt / total
         return [Anomaly(
@@ -94,38 +91,38 @@ def check_null_rate(conn, table: str, column: str, status_col: str | None = None
     return []
 
 
-def run_rule_checks(conn) -> list[Anomaly]:
+def run_rule_checks(adapter) -> list[Anomaly]:
     """跑全部 L0 规则，返回结构化异常清单。"""
     anomalies: list[Anomaly] = []
-    anomalies += check_duplicate(conn, "orders", ["order_id"])
-    anomalies += check_duplicate(conn, "order_items", ["order_id", "order_item_id"])
-    anomalies += check_duplicate(conn, "payments", ["order_id", "payment_sequential"])
-    anomalies += check_duplicate(conn, "reviews", ["review_id"])
-    anomalies += check_orphan(conn, "order_items", "orders", "order_id", "order_id")
-    anomalies += check_negative(conn, "order_items", "price")
-    anomalies += check_negative(conn, "order_items", "freight_value")
-    anomalies += check_negative(conn, "products", "product_weight_g")
-    anomalies += check_value_range(conn, "reviews", "review_score", 1, 5)
-    anomalies += check_value_range(conn, "payments", "payment_installments", 1, 24)
+    anomalies += check_duplicate(adapter, "orders", ["order_id"])
+    anomalies += check_duplicate(adapter, "order_items", ["order_id", "order_item_id"])
+    anomalies += check_duplicate(adapter, "payments", ["order_id", "payment_sequential"])
+    anomalies += check_duplicate(adapter, "reviews", ["review_id"])
+    anomalies += check_orphan(adapter, "order_items", "orders", "order_id", "order_id")
+    anomalies += check_negative(adapter, "order_items", "price")
+    anomalies += check_negative(adapter, "order_items", "freight_value")
+    anomalies += check_negative(adapter, "products", "product_weight_g")
+    anomalies += check_value_range(adapter, "reviews", "review_score", 1, 5)
+    anomalies += check_value_range(adapter, "payments", "payment_installments", 1, 24)
     # 空值按 status 分层：delivered 订单的交付日期不应为空
-    anomalies += check_null_rate(conn, "orders", "order_delivered_customer_date", "order_status", "delivered", 0.05)
+    anomalies += check_null_rate(adapter, "orders", "order_delivered_customer_date", "order_status", "delivered", 0.05)
     # 关键外键不应为空（全表检查，无 status 分层）
-    anomalies += check_null_rate(conn, "orders", "customer_id", threshold=0.0)
+    anomalies += check_null_rate(adapter, "orders", "customer_id", threshold=0.0)
     # 时间逻辑：交付早于下单（倒挂）+ 预估送达早于下单（第二时间字段）+ 下单时间超出采集范围（未来日期）
-    anomalies += check_time_inversion(conn, "order_delivered_customer_date", "交付日期早于下单日期")
-    anomalies += check_time_inversion(conn, "order_estimated_delivery_date", "预估送达日期早于下单日期")
-    anomalies += check_future_date(conn)
+    anomalies += check_time_inversion(adapter, "order_delivered_customer_date", "交付日期早于下单日期")
+    anomalies += check_time_inversion(adapter, "order_estimated_delivery_date", "预估送达日期早于下单日期")
+    anomalies += check_future_date(adapter)
     return anomalies
 
 
-def check_amount_mismatch(conn, tolerance: float = 0.01) -> list[Anomaly]:
+def check_amount_mismatch(adapter, tolerance: float = 0.01) -> list[Anomaly]:
     """跨表一致性：每单支付总额 vs 明细总额（price+freight），偏差超 tolerance 判异常。"""
-    n = conn.execute(f"""
+    n = adapter.execute(f"""
         WITH pay AS (SELECT order_id, SUM(payment_value) AS paid FROM payments GROUP BY order_id),
              item AS (SELECT order_id, SUM(price + freight_value) AS amount FROM order_items GROUP BY order_id)
         SELECT COUNT(*) FROM pay JOIN item ON pay.order_id = item.order_id
         WHERE ABS(pay.paid - item.amount) > {tolerance}
-    """).fetchone()[0]
+    """)[0][0]
     if n > 0:
         return [Anomaly(type="amount_mismatch", table="orders",
                         column="payment_total vs item_total", severity="high",
@@ -134,12 +131,12 @@ def check_amount_mismatch(conn, tolerance: float = 0.01) -> list[Anomaly]:
     return []
 
 
-def check_state_conflict(conn) -> list[Anomaly]:
+def check_state_conflict(adapter) -> list[Anomaly]:
     """跨表一致性：已取消订单却存在评价（订单状态与评价表矛盾）。"""
-    n = conn.execute("""
+    n = adapter.execute("""
         SELECT COUNT(*) FROM orders o JOIN reviews r ON o.order_id = r.order_id
         WHERE o.order_status = 'canceled'
-    """).fetchone()[0]
+    """)[0][0]
     if n > 0:
         return [Anomaly(type="state_conflict", table="orders", column="order_status",
                         severity="medium",
@@ -147,14 +144,14 @@ def check_state_conflict(conn) -> list[Anomaly]:
     return []
 
 
-def check_zip_inconsistency(conn) -> list[Anomaly]:
+def check_zip_inconsistency(adapter) -> list[Anomaly]:
     """跨字段一致性：同一邮编映射到多个城市（地理维度表内部矛盾，Olist 真实存在）。"""
-    n = conn.execute("""
+    n = adapter.execute("""
         SELECT COUNT(*) FROM (
             SELECT geolocation_zip_code_prefix FROM geolocation
             GROUP BY geolocation_zip_code_prefix HAVING COUNT(DISTINCT geolocation_city) > 1
         )
-    """).fetchone()[0]
+    """)[0][0]
     if n > 0:
         return [Anomaly(type="zip_inconsistency", table="geolocation",
                         column="geolocation_zip_code_prefix", severity="low",
@@ -162,21 +159,16 @@ def check_zip_inconsistency(conn) -> list[Anomaly]:
     return []
 
 
-def run_consistency_checks(conn) -> list[Anomaly]:
-    """L0 跨表/跨字段一致性检查：按 FK/业务语义逐对校验，0 LLM、最可解释。
-
-    与 run_rule_checks（单表规则）的分工：单表规则查「一张表自己哪里不对」
-    （重复/负值/空值），这里查「表与表之间的关系对不对」——金额对不上、状态矛盾、
-    维度表内部矛盾、FK 悬空。这才是数据质量检测最招牌、最有区分度的一类。
-    """
+def run_consistency_checks(adapter) -> list[Anomaly]:
+    """L0 跨表/跨字段一致性检查：按 FK/业务语义逐对校验，0 LLM、最可解释。"""
     anomalies: list[Anomaly] = []
-    anomalies += check_amount_mismatch(conn)
-    anomalies += check_state_conflict(conn)
-    anomalies += check_zip_inconsistency(conn)
+    anomalies += check_amount_mismatch(adapter)
+    anomalies += check_state_conflict(adapter)
+    anomalies += check_zip_inconsistency(adapter)
     # 孤儿外键铺满星型模型 FK 网（§14 #5）
-    anomalies += check_orphan(conn, "order_items", "products", "product_id", "product_id")
-    anomalies += check_orphan(conn, "order_items", "sellers", "seller_id", "seller_id")
-    anomalies += check_orphan(conn, "payments", "orders", "order_id", "order_id")
-    anomalies += check_orphan(conn, "reviews", "orders", "order_id", "order_id")
-    anomalies += check_orphan(conn, "orders", "customers", "customer_id", "customer_id")
+    anomalies += check_orphan(adapter, "order_items", "products", "product_id", "product_id")
+    anomalies += check_orphan(adapter, "order_items", "sellers", "seller_id", "seller_id")
+    anomalies += check_orphan(adapter, "payments", "orders", "order_id", "order_id")
+    anomalies += check_orphan(adapter, "reviews", "orders", "order_id", "order_id")
+    anomalies += check_orphan(adapter, "orders", "customers", "customer_id", "customer_id")
     return anomalies

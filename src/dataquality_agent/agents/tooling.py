@@ -7,15 +7,14 @@
 `build_diagnose_tools` 保留，把 4 个工具合一（兼容单图版 diagnose）。
 """
 from dataquality_agent.prompts import Tool
-from dataquality_agent.tools.metadata import get_table_schema
 from dataquality_agent.tools.sql import SafeSQL
 
 
-def build_schema_tool(conn) -> Tool:
+def build_schema_tool(adapter) -> Tool:
     """schema 工具：查某张表的列名与类型（DESCRIBE）。"""
     return Tool(name="schema", description="查某张表的列名与类型（DESCRIBE），写 SQL 前先查 schema 确认列名",
                 parameters={"type": "object", "properties": {"table": {"type": "string"}}, "required": ["table"]},
-                func=lambda args: str(get_table_schema(conn, args["table"])))
+                func=lambda args: str(adapter.describe_table(args["table"])))
 
 
 def build_lineage_tool(lineage) -> Tool:
@@ -25,10 +24,10 @@ def build_lineage_tool(lineage) -> Tool:
                 func=lambda args: str(lineage.upstream(args["table"])))
 
 
-def build_sql_tool(conn, sql_whitelist=None) -> Tool:
+def build_sql_tool(adapter, sql_whitelist=None) -> Tool:
     """sql 工具：执行只读诊断 SQL（仅 SELECT），护栏走 SafeSQL。"""
-    whitelist = sql_whitelist or {t[0] for t in conn.execute("SHOW TABLES").fetchall()}
-    safe_sql = SafeSQL(conn, whitelist)
+    whitelist = sql_whitelist or set(adapter.list_tables())
+    safe_sql = SafeSQL(adapter, whitelist)
     return Tool(name="sql", description="执行只读诊断 SQL（仅 SELECT）",
                 parameters={"type": "object", "properties": {"sql": {"type": "string"}}, "required": ["sql"]},
                 func=lambda args: str(safe_sql.run(args["sql"])))
@@ -61,9 +60,9 @@ def build_lineage_tools(lineage) -> list[Tool]:
     return [build_lineage_tool(lineage)]
 
 
-def build_sql_tools(conn, sql_whitelist=None) -> list[Tool]:
+def build_sql_tools(adapter, sql_whitelist=None) -> list[Tool]:
     """SQL 排查专职 Agent 的工具集（schema + sql）。"""
-    return [build_schema_tool(conn), build_sql_tool(conn, sql_whitelist)]
+    return [build_schema_tool(adapter), build_sql_tool(adapter, sql_whitelist)]
 
 
 def build_cases_tools(retriever, tracer=None) -> list[Tool]:
@@ -71,15 +70,15 @@ def build_cases_tools(retriever, tracer=None) -> list[Tool]:
     return [build_cases_tool(retriever, tracer)]
 
 
-def build_diagnose_tools(conn, lineage, retriever, sql_whitelist=None, tracer=None) -> list[Tool]:
+def build_diagnose_tools(adapter, lineage, retriever, sql_whitelist=None, tracer=None) -> list[Tool]:
     """构造归因 Agent 的 4 工具合一：schema / lineage / cases / sql（只读）。
 
-    sql 的只读护栏走 SafeSQL；表白名单缺省 = 当前数仓的全部表（从 SHOW TABLES 派生）。
+    sql 的只读护栏走 SafeSQL；表白名单缺省 = 当前数仓的全部表（从 adapter.list_tables() 派生）。
     tracer 用于给 cases 里的 RAG 检索埋 span（步骤级 Trace）。
     """
     return [
-        build_schema_tool(conn),
+        build_schema_tool(adapter),
         build_lineage_tool(lineage),
         build_cases_tool(retriever, tracer),
-        build_sql_tool(conn, sql_whitelist),
+        build_sql_tool(adapter, sql_whitelist),
     ]

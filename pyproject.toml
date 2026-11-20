@@ -23,6 +23,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=7.0", "httpx>=0.27"]
 
+[project.scripts]
+dqagent = "dataquality_agent.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

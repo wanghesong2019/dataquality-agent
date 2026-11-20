@@ -21,7 +21,7 @@ def classify_reversibility(anomaly_type: str) -> str:
     return "可逆" if anomaly_type in REVERSIBLE_TYPES else "数据丢失"
 
 
-def apply_remediation(conn, remediation) -> bool:
+def apply_remediation(adapter, remediation) -> bool:
     """在一次性 eval DB 上执行 fix_sql（best-effort），返回是否成功执行。
 
     只执行 action_type == "fix_sql" 且非空的 SQL；去掉 -- 注释行（模型常带说明注释）；
@@ -35,20 +35,20 @@ def apply_remediation(conn, remediation) -> bool:
     if not sql:
         return False
     try:
-        conn.execute(sql)
+        adapter.execute(sql)
         return True
     except Exception:
         return False
 
 
-def remediate_and_recheck(conn, remediations, current_date=None, expected_schema=None) -> list:
+def remediate_and_recheck(adapter, remediations, current_date=None, expected_schema=None) -> list:
     """应用 fix_sql 整改 → 重跑检测，返回修复后的异常列表（复检口径）。
 
     current_date / expected_schema 透传给 run_detection，保证复检和初检用同一基线。
     """
     for r in remediations:
-        apply_remediation(conn, r)
-    return run_detection(conn, current_date=current_date, expected_schema=expected_schema).anomalies
+        apply_remediation(adapter, r)
+    return run_detection(adapter, current_date=current_date, expected_schema=expected_schema).anomalies
 
 
 def remediation_success_by_reversibility(detected_before, detected_after, injected) -> dict:
@@ -64,7 +64,7 @@ def remediation_success_by_reversibility(detected_before, detected_after, inject
 
 
 def run_eval(injected, detected_before, diagnoses, detected_after, stats, cost_ledger,
-             llm_seconds: float = 0.0, baseline=None, detected_all=None) -> EvalReport:
+             llm_seconds: float = 0.0, baseline=None, detected_all=None, llm: bool = True) -> EvalReport:
     """组装 EvalReport：把各阶段输出喂给 metrics 函数，得到面试可报的量化数字。
 
     llm_seconds = 归因/整改等 LLM 调用耗时（检测层耗时在 stats 里，两者相加 = 全流程耗时）。
@@ -73,6 +73,20 @@ def run_eval(injected, detected_before, diagnoses, detected_after, stats, cost_l
     detected_before = 只含注入目标的检测结果（与 diagnoses 等长，用于归因/整改对齐）。
     """
     det_all = detected_all if detected_all is not None else detected_before
+    if not llm:
+        return EvalReport(
+            detection=evaluate_detection(det_all, injected, baseline),
+            detection_by_type=evaluate_detection_by_type(det_all, injected, baseline),
+            attribution_accuracy=None,
+            remediation_success=None,
+            end_to_end_success=None,
+            latency_seconds=(total_latency(stats) if stats else 0.0),
+            total_tokens=cost_ledger.total_tokens if cost_ledger else 0,
+            total_cost=cost_ledger.total_cost if cost_ledger else 0.0,
+            llm_calls=cost_ledger.llm_calls if cost_ledger else 0,
+            trajectory=None,
+            failure_taxonomy=None,
+        )
     return EvalReport(
         detection=evaluate_detection(det_all, injected, baseline),
         detection_by_type=evaluate_detection_by_type(det_all, injected, baseline),

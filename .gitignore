@@ -8,3 +8,5 @@ venv/
 # 环境与本地数据
 .env
 *.duckdb
+/data/
+*.bak*

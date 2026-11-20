@@ -1,16 +1,16 @@
+from dataquality_agent.adapters import DuckDBAdapter
 from dataquality_agent.agents.tooling import build_diagnose_tools
-from dataquality_agent.data.injector import Injector
 from dataquality_agent.data.lineage import Lineage
 from dataquality_agent.rag.embedder import BagOfWordsEmbedder
 from dataquality_agent.rag.retriever import Retriever
 
 
 def test_build_diagnose_tools(mini_warehouse):
-    conn = Injector(mini_warehouse).connect()
+    adapter = DuckDBAdapter(mini_warehouse.db_path)
     retriever = Retriever(BagOfWordsEmbedder(["订单"]))
     retriever.index([{"id": "c1", "text": "订单 主键 重复"}])
 
-    tools = build_diagnose_tools(conn, Lineage(), retriever)
+    tools = build_diagnose_tools(adapter, Lineage(), retriever)
     assert {t.name for t in tools} == {"schema", "lineage", "cases", "sql"}
 
     schema = next(t for t in tools if t.name == "schema")
