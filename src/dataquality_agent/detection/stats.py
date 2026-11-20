@@ -5,7 +5,7 @@ from datetime import date
 from scipy.stats import chisquare
 
 from dataquality_agent.data.lineage import Lineage
-from dataquality_agent.models import Anomaly
+from dataquality_agent.models import Anomaly, Evidence
 
 
 def zscore_detect(current: float, baseline: list[float], threshold: float = 3.0) -> bool:
@@ -94,9 +94,12 @@ def detect_volume(adapter, threshold: float = 3.0, lookback: int = 7,
             continue
         baseline = [r[idx] for r in rows[1:]]
         if zscore_detect(current, baseline, threshold):
+            query = f"SELECT {cols} FROM daily_metrics ORDER BY order_date DESC LIMIT {lookback + 1}"
             anomalies.append(Anomaly(
                 type="volume", table="daily_metrics", column=metric,
-                evidence=f"最新日 {metric}={current} 偏离基线（|z| 超 {threshold}）",
+                evidence=Evidence(query=query,
+                                  expected=f"|z| <= {threshold}",
+                                  actual=f"最新日 {metric}={current} 偏离基线（|z| 超 {threshold}）"),
                 metric_value=current, expected_range=f"|z| <= {threshold}",
             ))
     return anomalies
@@ -114,9 +117,12 @@ def _dist_drift(adapter, table: str, cat_col: str, date_col: str,
     exp = _cat_dist(adapter, table, cat_col, date_col, None)
     p = chi2_drift(cur, exp)
     if p < alpha:
+        query = f"SELECT {cat_col}, COUNT(*) FROM {table} WHERE {date_col}::DATE = '{latest}'::DATE GROUP BY {cat_col}"
         return [Anomaly(
             type="distribution", table=table, column=cat_col,
-            evidence=f"{cat_col} 分布漂移 χ² p={p:.3g} < {alpha}",
+            evidence=Evidence(query=query,
+                              expected=f"χ² p >= {alpha}",
+                              actual=f"{cat_col} 分布漂移 χ² p={p:.3g} < {alpha}"),
             metric_value=round(p, 6), expected_range=f"χ² p >= {alpha}",
         )]
     return []
@@ -174,7 +180,9 @@ def detect_lineage_break(watermarks: dict[str, str], lineage: Lineage,
             if lag > max_lag_days:
                 anomalies.append(Anomaly(
                     type="lineage_break", table=table, column=upstream,
-                    evidence=f"{table} 水位线 {wm} 落后上游 {upstream} 的 {up_wm}（滞后 {lag} 天）",
+                    evidence=Evidence(expected=f"<= {max_lag_days} 天",
+                                      actual=f"{table} 水位线 {wm} 落后上游 {upstream} 的 {up_wm}（滞后 {lag} 天）",
+                                      lineage=[upstream]),
                     metric_value=lag, expected_range=f"<= {max_lag_days} 天",
                 ))
     return anomalies
@@ -189,7 +197,8 @@ def detect_freshness(watermarks: dict[str, str], current_date: str,
             gap = (date.fromisoformat(current_date) - date.fromisoformat(wm)).days
             anomalies.append(Anomaly(
                 type="freshness", table=table,
-                evidence=f"{table} 水位线 {wm} 落后当前 {current_date}（滞后 {gap} 天）",
+                evidence=Evidence(expected=f"<= {max_gap_days} 天",
+                                  actual=f"{table} 水位线 {wm} 落后当前 {current_date}（滞后 {gap} 天）"),
                 metric_value=gap, expected_range=f"<= {max_gap_days} 天",
             ))
     return anomalies
@@ -203,6 +212,7 @@ def detect_schema_drift(curr_schema: dict, expected_schema: dict) -> list[Anomal
         if changes:
             anomalies.append(Anomaly(
                 type="schema_drift", table=table,
-                evidence="; ".join(changes),
+                evidence=Evidence(expected="schema 与期望快照一致",
+                                  actual="; ".join(changes)),
             ))
     return anomalies

@@ -170,3 +170,23 @@ def test_detect_volume_min_count_skip():
         conn.execute("INSERT INTO daily_metrics VALUES (?, ?)", [f"2018-01-0{i + 1}", 500 + i * 10])
     conn.execute("INSERT INTO daily_metrics VALUES ('2018-01-08', 1)")  # 最新一天仅 1 单
     assert detect_volume(DuckDBAdapter(conn), threshold=3.0) == []
+
+
+def test_l1_anomalies_carry_evidence():
+    """L1 统计异常的 evidence 应为结构化 Evidence（expected + actual 非空）。"""
+    from dataquality_agent.models import Evidence
+
+    anomalies = []
+    anomalies += detect_volume(_volume_adapter(), threshold=3.0)                          # volume
+    anomalies += detect_distribution(_dist_adapter(), alpha=0.05)                          # distribution
+    anomalies += detect_lineage_break(
+        {"orders": "2018-10-17", "order_items": "2018-10-17", "daily_metrics": "2018-10-10"},
+        Lineage(), max_lag_days=1)                                                         # lineage_break
+    anomalies += detect_freshness({"orders": "2018-01-01"}, "2018-01-06", max_gap_days=1)  # freshness
+    anomalies += detect_schema_drift(
+        {"dwd_orders": {"a": "INTEGER"}}, {"dwd_orders": {"a": "INTEGER", "b": "VARCHAR"}})  # schema_drift
+
+    assert anomalies, "应触发多条 L1 异常"
+    for a in anomalies:
+        assert isinstance(a.evidence, Evidence), f"{a.type} 证据不是 Evidence"
+        assert a.evidence.expected and a.evidence.actual, f"{a.type} 缺少 expected/actual"
