@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2026-11-20
+
+Land the design philosophy **"一切皆断言，判断皆有据"** (*everything is an assertion; every judgment is evidence-backed*): evidence becomes a first-class structured object, and attribution is thinned to a single evidence-consuming LLM call.
+
+### Added
+
+- `Evidence` model (`query` / `rows` / `expected` / `actual` / `lineage` / `blast_radius`) — first-class structured evidence mounted on `Anomaly`, `Diagnosis`, and `Remediation`.
+- Detection-layer row sampling: every L0 rule and cross-table consistency check captures offending rows (`LIMIT 20`) on fail, via `sample_offending`.
+- `assemble_evidence`: deterministic, no-LLM evidence assembly (anomaly evidence + upstream lineage + schema + similar cases).
+- `make_thin_diagnose_node`: thin attribution — one LLM call per anomaly consuming the assembled evidence package.
+- Evidence-completeness gate in deterministic eval (every failed anomaly carries a non-empty `query`, `rows` capped at 20).
+
+### Changed
+
+- `Anomaly.evidence` is now `Evidence` (was a free-text `str`); a `summary` property returns the legacy human-readable text, and a `field_validator` shim keeps legacy `str` producers working.
+- `wiring.py` builds the linear `build_graph` (inspect → thin diagnose → remediate → approve → report) instead of the supervisor triage + 3-specialist graph. Supervisor/specialist modules are retained as an eval comparison arm.
+- L1 statistical detectors (`volume` / `distribution` / `lineage_break` / `freshness` / `schema_drift`) emit structured `Evidence` (no row sampling; `expected`/`actual` populated).
+- `EvalReport` exposes `anomalies`.
+
 ## [0.1.1] - 2026-11-20
 
 Patch release: clear the deferred minors from the v0.1.0 review.
