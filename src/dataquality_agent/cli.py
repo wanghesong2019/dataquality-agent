@@ -62,7 +62,16 @@ def _cmd_run(args) -> int:
 
 
 def _cmd_eval(args) -> int:
-    print("eval 待实现（Task 7：无 LLM 确定性评估）")
+    data_dir = _data_dir(args)
+    if not (data_dir / "olist_orders_dataset.csv").exists():
+        print(f"未找到样本数据（{data_dir}），请先运行：dqagent init --dir {args.dir}", file=sys.stderr)
+        return 1
+    from dataquality_agent.eval.deterministic import run_deterministic_eval
+
+    settings = Settings(data_dir=str(data_dir), db_path=str(data_dir / "warehouse.duckdb"))
+    report = run_deterministic_eval(settings)
+    d = report.detection
+    print(f"检测 P/R/F1：P={d.precision:.3f} R={d.recall:.3f} F1={d.f1:.3f}")
     return 0
 
 

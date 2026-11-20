@@ -23,7 +23,9 @@ class DuckDBAdapter(WarehouseAdapter):
             self._conn = duckdb.connect(self.path)
 
     def close(self) -> None:
-        if self._conn is not None and self._owns_conn:
+        if not self._owns_conn:
+            return  # 包装外部连接：不关、不置空，所有权在调用方
+        if self._conn is not None:
             self._conn.close()
         self._conn = None
 

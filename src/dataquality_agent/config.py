@@ -13,7 +13,7 @@ class Settings:
     # 可复现性（评估的地基：异常注入必须可复现）
     seed: int = 42
     # L0 阈值
-    null_rate_threshold: float = 0.20  # null 率突增阈值
+    null_rate_threshold: float = 0.05  # null 率检查阈值（L0；run_eval 注入也按 5% 标定）
     # L1 阈值
     zscore_threshold: float = 3.0  # volume 异常 Z-score 阈值
     distribution_alpha: float = 0.05  # distribution 漂移卡方显著性水平（p < α 判漂移）

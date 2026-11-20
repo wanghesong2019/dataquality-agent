@@ -181,5 +181,5 @@ def end_to_end_success(detected, diagnoses, detected_after, injected) -> float:
 
 
 def total_latency(stats: dict[str, float]) -> float:
-    """各阶段耗时汇总（秒）。"""
-    return sum(stats.values())
+    """各阶段耗时汇总（秒）；失败检测器记为 -1.0，不计入耗时。"""
+    return sum(v for v in stats.values() if v >= 0)

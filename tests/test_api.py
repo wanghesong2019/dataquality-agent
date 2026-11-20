@@ -111,3 +111,24 @@ def test_runstore_empty(tmp_path):
     store = RunStore(str(tmp_path / "runs.sqlite"))
     assert store.list_ids() == []
     assert store.load("nope") is None
+
+
+def test_runstore_concurrent_writes(tmp_path):
+    """多线程并发 save 不应抛 sqlite locked（RunStore 加锁串行化）。"""
+    import threading
+    store = RunStore(str(tmp_path / "runs.sqlite"))
+    errors = []
+
+    def save(i):
+        try:
+            store.save(f"run-{i}", "completed")
+        except Exception as e:  # pragma: no cover
+            errors.append(e)
+
+    threads = [threading.Thread(target=save, args=(i,)) for i in range(20)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+    assert len(store.list_ids()) == 20

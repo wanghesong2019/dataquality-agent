@@ -100,3 +100,8 @@ def test_end_to_end_success():
 
 def test_total_latency():
     assert total_latency({"l0_rules": 0.1, "l1_lineage": 0.2}) == pytest.approx(0.3)
+
+
+def test_total_latency_excludes_failures():
+    """失败检测器记为 -1.0，不应被当成耗时累加。"""
+    assert total_latency({"l0_rules": 0.1, "boom": -1.0, "l1_lineage": 0.2}) == pytest.approx(0.3)

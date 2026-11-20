@@ -66,3 +66,16 @@ def test_detect_orphan_fk_product(mini_warehouse):
     adapter = DuckDBAdapter(conn)
     conn.execute("DELETE FROM products WHERE product_id = 'p1'")
     assert "orphan" in [a.type for a in run_consistency_checks(adapter)]
+
+
+def test_null_rate_threshold_controls_detection(mini_warehouse):
+    """null_rate_threshold 应真正控制 delivered 交付日期空值检查（不再是死配置）。"""
+    inj = Injector(mini_warehouse)
+    conn = inj.connect()
+    adapter = DuckDBAdapter(conn)
+    # 1 个 delivered 订单交付日期置空 → delivered 组 null 率 50%
+    inj.run(conn, [{"type": "null_rate", "table": "orders", "column": "order_delivered_customer_date",
+                    "status_col": "order_status", "status_value": "delivered",
+                    "key_cols": ["order_id"], "n": 1}])
+    assert "null_rate" in [a.type for a in run_rule_checks(adapter, null_rate_threshold=0.05)]
+    assert "null_rate" not in [a.type for a in run_rule_checks(adapter, null_rate_threshold=0.99)]

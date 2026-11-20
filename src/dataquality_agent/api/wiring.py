@@ -49,7 +49,7 @@ def build_runtime(settings: Settings | None = None) -> PatrolRuntime:
 
     # HITL 持久化：审批暂停/恢复的状态落盘 SQLite，进程重启不丢（生产可换 Postgres）
     Path(settings.checkpoint_path).parent.mkdir(parents=True, exist_ok=True)
-    checkpointer = SqliteSaver(sqlite3.connect(settings.checkpoint_path, check_same_thread=False))
+    checkpointer = SqliteSaver(sqlite3.connect(settings.checkpoint_path, check_same_thread=False, timeout=30))
 
     graph = build_supervisor_graph(
         make_inspect_node(wh, adapter),

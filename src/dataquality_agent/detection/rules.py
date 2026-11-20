@@ -91,7 +91,7 @@ def check_null_rate(adapter, table: str, column: str, status_col: str | None = N
     return []
 
 
-def run_rule_checks(adapter) -> list[Anomaly]:
+def run_rule_checks(adapter, null_rate_threshold: float = 0.05) -> list[Anomaly]:
     """跑全部 L0 规则，返回结构化异常清单。"""
     anomalies: list[Anomaly] = []
     anomalies += check_duplicate(adapter, "orders", ["order_id"])
@@ -105,7 +105,7 @@ def run_rule_checks(adapter) -> list[Anomaly]:
     anomalies += check_value_range(adapter, "reviews", "review_score", 1, 5)
     anomalies += check_value_range(adapter, "payments", "payment_installments", 1, 24)
     # 空值按 status 分层：delivered 订单的交付日期不应为空
-    anomalies += check_null_rate(adapter, "orders", "order_delivered_customer_date", "order_status", "delivered", 0.05)
+    anomalies += check_null_rate(adapter, "orders", "order_delivered_customer_date", "order_status", "delivered", null_rate_threshold)
     # 关键外键不应为空（全表检查，无 status 分层）
     anomalies += check_null_rate(adapter, "orders", "customer_id", threshold=0.0)
     # 时间逻辑：交付早于下单（倒挂）+ 预估送达早于下单（第二时间字段）+ 下单时间超出采集范围（未来日期）

@@ -1,5 +1,6 @@
 """巡检运行时：触发巡检、查询结果、审批恢复；RunStore 持久化 run 元数据（跨进程重启恢复）。"""
 import sqlite3
+import threading
 import uuid
 
 from langgraph.types import Command
@@ -24,20 +25,24 @@ class RunStore:
     """
 
     def __init__(self, path: str):
-        self._conn = sqlite3.connect(path, check_same_thread=False)
+        self._lock = threading.Lock()
+        self._conn = sqlite3.connect(path, check_same_thread=False, timeout=30)
         self._conn.execute("CREATE TABLE IF NOT EXISTS runs (run_id TEXT PRIMARY KEY, status TEXT NOT NULL)")
         self._conn.commit()
 
     def save(self, run_id: str, status: str) -> None:
-        self._conn.execute("INSERT OR REPLACE INTO runs (run_id, status) VALUES (?, ?)", (run_id, status))
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute("INSERT OR REPLACE INTO runs (run_id, status) VALUES (?, ?)", (run_id, status))
+            self._conn.commit()
 
     def load(self, run_id: str) -> dict | None:
-        row = self._conn.execute("SELECT status FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+        with self._lock:
+            row = self._conn.execute("SELECT status FROM runs WHERE run_id = ?", (run_id,)).fetchone()
         return {"status": row[0]} if row else None
 
     def list_ids(self) -> list[str]:
-        return [r[0] for r in self._conn.execute("SELECT run_id FROM runs ORDER BY rowid").fetchall()]
+        with self._lock:
+            return [r[0] for r in self._conn.execute("SELECT run_id FROM runs ORDER BY rowid").fetchall()]
 
 
 class PatrolRuntime:

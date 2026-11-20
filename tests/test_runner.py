@@ -53,3 +53,10 @@ def test_run_detection_isolates_detector_failure(mini_warehouse):
     assert report.stats["boom"] == -1.0  # 失败被记录
     assert "l0_rules" in report.stats       # 其它检测器照常跑
     assert report.anomalies == []           # 干净数据不误报
+
+
+def test_run_detection_non_olist_warehouse_graceful(tmp_path):
+    """非 Olist 数仓（无 dwd_orders/daily_metrics）不崩溃：水位线缺表应空转，而非抛异常。"""
+    adapter = DuckDBAdapter(tmp_path / "empty.duckdb")
+    report = run_detection(adapter)
+    assert report.anomalies == []

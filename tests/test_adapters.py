@@ -34,3 +34,13 @@ def test_execute_max_rows_caps_materialized_rows(tmp_path):
     assert len(adapter.execute("SELECT * FROM t", max_rows=7)) == 7
     assert len(adapter.execute("SELECT * FROM t")) == 1000
     adapter.close()
+
+
+def test_wrapped_conn_survives_close_and_reuse(tmp_path):
+    """包装外部 conn 的 adapter，close() 后复用应仍连原库（而非静默连内存库）。"""
+    import duckdb
+    conn = duckdb.connect(str(tmp_path / "x.duckdb"))
+    conn.execute("CREATE TABLE t AS SELECT 42 AS v")
+    adapter = DuckDBAdapter(conn)
+    adapter.close()
+    assert adapter.execute("SELECT v FROM t") == [(42,)]

@@ -28,12 +28,15 @@ def _watermarks(adapter) -> dict[str, str]:
     所以「数据停更」只对 orders/daily_metrics 这种有独立日期轴的表有意义。
     """
     wm: dict[str, str] = {}
-    rows = adapter.execute("SELECT MAX(order_purchase_timestamp::DATE) FROM dwd_orders")
-    if rows and rows[0][0] is not None:
-        wm["orders"] = str(rows[0][0])
-    rows = adapter.execute("SELECT MAX(order_date) FROM daily_metrics")
-    if rows and rows[0][0] is not None:
-        wm["daily_metrics"] = str(rows[0][0])
+    tables = set(adapter.list_tables())
+    if "dwd_orders" in tables:
+        rows = adapter.execute("SELECT MAX(order_purchase_timestamp::DATE) FROM dwd_orders")
+        if rows and rows[0][0] is not None:
+            wm["orders"] = str(rows[0][0])
+    if "daily_metrics" in tables:
+        rows = adapter.execute("SELECT MAX(order_date) FROM daily_metrics")
+        if rows and rows[0][0] is not None:
+            wm["daily_metrics"] = str(rows[0][0])
     return wm
 
 
@@ -44,7 +47,7 @@ class _L0Rules:
     name = "l0_rules"
 
     def detect(self, adapter, ctx):
-        return rules.run_rule_checks(adapter)
+        return rules.run_rule_checks(adapter, ctx["null_rate_threshold"])
 
 
 class _L0CrossTable:
@@ -122,13 +125,14 @@ def run_detection(adapter, detectors=None, *,
                   expected_schema: dict | None = None,
                   semantic_model=None,
                   zscore_threshold: float | None = None,
-                  distribution_alpha: float | None = None) -> DetectionReport:
+                  distribution_alpha: float | None = None,
+                  null_rate_threshold: float | None = None) -> DetectionReport:
     """跑全部检测（dataset 级 → column 级），返回报告 + 各检查耗时。
 
     - current_date：freshness 的参照日期（ISO 字符串）；缺省 = 数据全局最新水位线（干净数据不误报）。
     - expected_schema：schema 漂移的期望快照 {table: {col: type}}；缺省跳过 schema 检测。
     - semantic_model：L2 语义检测用的 LLM（需有 .chat）；缺省跳过 L2。
-    - zscore_threshold / distribution_alpha：缺省从 Settings 取（单一配置源）。
+    - zscore_threshold / distribution_alpha / null_rate_threshold：缺省从 Settings 取（单一配置源）。
     - detectors：检测器注册表 {name: Detector}；缺省用内置 DETECTORS。
     单个检测器失败不拖垮整次巡检（隔离，stats[name] 记 -1.0）。
     """
@@ -143,6 +147,8 @@ def run_detection(adapter, detectors=None, *,
         zscore_threshold = Settings().zscore_threshold
     if distribution_alpha is None:
         distribution_alpha = Settings().distribution_alpha
+    if null_rate_threshold is None:
+        null_rate_threshold = Settings().null_rate_threshold
 
     ctx = {
         "watermarks": watermarks,
@@ -151,6 +157,7 @@ def run_detection(adapter, detectors=None, *,
         "semantic_model": semantic_model,
         "zscore_threshold": zscore_threshold,
         "distribution_alpha": distribution_alpha,
+        "null_rate_threshold": null_rate_threshold,
     }
 
     for name, det in dets.items():
