@@ -27,6 +27,7 @@ const sidebars: SidebarsConfig = {
         'how-to/write-a-detector',
         'how-to/define-remediation',
         'how-to/deploy',
+        'how-to/run-eval-on-your-warehouse',
       ],
     },
     {
