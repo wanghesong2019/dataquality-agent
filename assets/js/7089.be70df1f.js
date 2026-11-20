@@ -1,0 +1,1 @@
+"use strict";(globalThis.webpackChunkdataquality_agent_docs||=[]).push([[7089],{7089(e,a,t){t.d(a,{createArchitectureServices:()=>c.S});var c=t(5796);t(4954)}}]);
