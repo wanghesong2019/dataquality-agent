@@ -67,7 +67,7 @@ def test_detect_schema_drift():
     anomalies = detect_schema_drift(curr, expected)
     assert len(anomalies) == 1
     assert anomalies[0].type == "schema_drift"
-    assert "removed:b" in anomalies[0].evidence
+    assert "removed:b" in anomalies[0].summary
 
 
 def _volume_adapter():

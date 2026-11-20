@@ -1,6 +1,6 @@
 from dataquality_agent.adapters import DuckDBAdapter
 from dataquality_agent.data.injector import Injector
-from dataquality_agent.detection.rules import run_consistency_checks, run_rule_checks
+from dataquality_agent.detection.rules import check_duplicate, run_consistency_checks, run_rule_checks
 
 
 def test_clean_warehouse_no_false_positive(mini_warehouse):
@@ -15,6 +15,24 @@ def test_detect_duplicate(mini_warehouse):
     adapter = DuckDBAdapter(conn)
     inj.run(conn, [{"type": "duplicate", "table": "orders", "key_cols": ["order_id"], "n": 1}])
     assert "duplicate" in [a.type for a in run_rule_checks(adapter)]
+
+
+def test_duplicate_evidence_structured(mini_warehouse):
+    """注入重复键后，异常证据应为结构化 Evidence（query + 命中行样本，封顶 20）。"""
+    from dataquality_agent.models import Evidence
+
+    inj = Injector(mini_warehouse)
+    conn = inj.connect()
+    adapter = DuckDBAdapter(conn)
+    inj.run(conn, [{"type": "duplicate", "table": "orders", "key_cols": ["order_id"], "n": 1}])
+    anomalies = check_duplicate(adapter, "orders", ["order_id"])
+    assert anomalies, "注入重复键后应检出"
+    ev = anomalies[0].evidence
+    assert isinstance(ev, Evidence)          # 不再是 str
+    assert ev.query and ev.query.strip()     # query 非空
+    assert ev.rows, "必须抓到命中行样本"      # rows 非空
+    assert len(ev.rows) <= 20                # 封顶
+    assert "重复" in anomalies[0].summary    # summary 兼容旧文本
 
 
 def test_detect_orphan(mini_warehouse):

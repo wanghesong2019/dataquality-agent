@@ -1,7 +1,22 @@
 """Pydantic 结构化数据模型（检测/归因/整改/报告的公共契约）。"""
 from typing import TypedDict
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+class Evidence(BaseModel):
+    """结构化证据：支撑判定结论的 SQL + 命中行样本 + 期望 vs 实际 + 血缘/影响面。
+
+    「判断皆有据」的落点——任何有结论的地方都携带它；rows 封顶（默认 LIMIT 20，token-cheap），
+    lineage/blast_radius 归因时补。
+    """
+
+    query: str = ""                  # 触发判定的 SQL（默认空：空证据 / 垫片 / 测试构造）
+    rows: list[dict] | None = None    # 命中行样本（截断）
+    expected: str | None = None       # 期望（阈值 / 基线 / 规则）
+    actual: str | None = None         # 实际观测（count / rate / value）
+    lineage: list[str] | None = None      # 上游血缘（归因时补）
+    blast_radius: list[str] | None = None # 下游影响面（归因时补）
 
 
 class Anomaly(BaseModel):
@@ -11,9 +26,25 @@ class Anomaly(BaseModel):
     table: str
     column: str | None = None
     severity: str = "medium"  # low / medium / high
-    evidence: str = ""  # 证据（SQL 结果摘要等）
+    evidence: Evidence = Field(default_factory=Evidence)  # 结构化证据（一等公民，不再是自由文本）
     metric_value: float | str | None = None
     expected_range: str | None = None
+
+    @field_validator("evidence", mode="before")
+    @classmethod
+    def _coerce_legacy_evidence(cls, v):
+        """迁移垫片：旧的 str 证据自动包成 Evidence(actual=...)。
+
+        L0/L1 规则迁完后此分支不再触发；L2 semantic.py（v0.2 范围外）仍产 str，由它兜住。
+        """
+        if isinstance(v, str):
+            return Evidence(query="", actual=v)
+        return v
+
+    @property
+    def summary(self) -> str:
+        """回吐旧文本（human-readable 摘要），兼容现有消费方（如 CLI 打印）。"""
+        return self.evidence.actual or ""
 
 
 class Diagnosis(BaseModel):

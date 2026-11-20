@@ -39,7 +39,7 @@ def _cmd_detect(args) -> int:
     report = run_detection(DuckDBAdapter(settings.db_path))  # 无 semantic_model → 无 LLM
     if report.anomalies:
         for a in report.anomalies:
-            print(f"[{a.type}] {a.table}.{a.column or ''} {a.evidence}")
+            print(f"[{a.type}] {a.table}.{a.column or ''} {a.summary}")
     else:
         print("未检出异常")
     print(f"共 {len(report.anomalies)} 条异常")

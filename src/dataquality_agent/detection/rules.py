@@ -1,5 +1,17 @@
 """L0 规则断言检测：确定性、0 LLM、最可解释。"""
-from dataquality_agent.models import Anomaly
+from dataquality_agent.models import Anomaly, Evidence
+
+
+def sample_offending(adapter, table: str, where_sql: str, limit: int = 20) -> list[dict]:
+    """采样命中行：SELECT * FROM {table} WHERE {where_sql} LIMIT {limit}，列名对齐返回 list[dict]。
+
+    证据采集的核心：判定 fail 时顺手抓命中行样本（LIMIT 封顶，token-cheap），把证据从「数字」变「行」。
+    """
+    cols = list(adapter.describe_table(table).keys())
+    if not cols:
+        return []
+    rows = adapter.execute(f"SELECT * FROM {table} WHERE {where_sql} LIMIT {limit}", max_rows=limit)
+    return [dict(zip(cols, r)) for r in rows]
 
 
 def check_duplicate(adapter, table: str, key_cols: list[str]) -> list[Anomaly]:
@@ -8,7 +20,13 @@ def check_duplicate(adapter, table: str, key_cols: list[str]) -> list[Anomaly]:
         f"SELECT COUNT(*) FROM (SELECT {key} FROM {table} GROUP BY {key} HAVING COUNT(*) > 1)"
     )[0][0]
     if n > 0:
-        return [Anomaly(type="duplicate", table=table, column=key, evidence=f"{n} 组重复键")]
+        inner = f"SELECT {key} FROM {table} GROUP BY {key} HAVING COUNT(*) > 1"
+        lhs = key if len(key_cols) == 1 else f"({key})"
+        where = f"{lhs} IN ({inner})"
+        rows = sample_offending(adapter, table, where)
+        return [Anomaly(type="duplicate", table=table, column=key,
+                        evidence=Evidence(query=f"SELECT * FROM {table} WHERE {where} LIMIT 20",
+                                          rows=rows, expected="无重复键", actual=f"{n} 组重复键"))]
     return []
 
 
