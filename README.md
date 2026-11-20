@@ -1,6 +1,23 @@
-# DataAgent — Agentic Data Quality: Inspect · Attribute · Remediate
+<div align="center">
+  <img src="assets/logo.png" alt="DataAgent" width="110" />
+
+  <h1>DataAgent</h1>
+
+  <p><em>Agentic Data Quality — Inspect · Attribute · Remediate</em></p>
+
+  <p>
+    <a href="https://wanghesong2019.github.io/dataquality-agent/"><img alt="Docs" src="https://img.shields.io/badge/docs-online-orange" /></a>
+    <img alt="Python 3.10+" src="https://img.shields.io/badge/Python-3.10%2B-blue" />
+    <img alt="Apache 2.0" src="https://img.shields.io/badge/License-Apache_2.0-blue" />
+    <a href="https://github.com/wanghesong2019/dataquality-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/wanghesong2019/dataquality-agent/actions/workflows/ci.yml/badge.svg" /></a>
+  </p>
+</div>
+
+---
 
 An open-source, out-of-the-box **data quality agent** that upgrades traditional rule-and-manual data governance into an **LLM-agent pipeline**: inspect → attribute → remediate → human approval → report.
+
+> **Documentation**: [wanghesong2019.github.io/dataquality-agent](https://wanghesong2019.github.io/dataquality-agent/)
 
 > **Positioning**: at runtime, it **proposes, never executes** — the agent generates remediation plans, high-risk fixes go through human approval, and plan effectiveness is verified **offline** (apply the plan on a cloned warehouse and re-check to get a remediation success rate). It never mutates your production warehouse directly.
 
