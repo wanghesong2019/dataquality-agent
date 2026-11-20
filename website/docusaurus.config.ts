@@ -4,7 +4,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'DataAgent',
-  tagline: 'Agentic data quality — inspect · attribute · remediate',
+  tagline: 'Everything is an assertion; every judgment is evidence-backed',
   favicon: 'img/meerkat.png',
 
   // Note: `future.v4` (Rspack bundler) is left disabled — it tree-shakes mermaid's
@@ -91,6 +91,7 @@ const config: Config = {
         {
           title: 'Documentation',
           items: [
+            {label: 'Philosophy', to: '/docs/philosophy'},
             {label: 'Quickstart', to: '/docs/getting-started/quickstart'},
             {label: 'Architecture', to: '/docs/concepts/architecture'},
             {label: 'Extension points', to: '/docs/concepts/extension-points'},

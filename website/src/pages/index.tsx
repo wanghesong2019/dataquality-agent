@@ -8,16 +8,16 @@ import styles from './index.module.css';
 
 const PILLARS = [
   {
-    title: 'Detect',
-    body: 'Three layers — L0 deterministic rules, L1 statistical observability, L2 LLM semantics — surface what rules alone miss.',
+    title: 'Everything is an assertion',
+    body: 'Detect, attribute, and remediate are not three modules — they are one claim about your data, carried through a verdict and its proof.',
   },
   {
-    title: 'Attribute',
-    body: 'A supervisor triages each anomaly to a focused specialist (lineage, SQL, cases) and aggregates a root-cause diagnosis.',
+    title: 'Every judgment is evidence-backed',
+    body: 'No bare conclusions. Every anomaly and diagnosis ships with the SQL, the offending rows, and the expected-vs-actual that justify it.',
   },
   {
-    title: 'Remediate',
-    body: 'An executor and a critic propose fixes; high-risk fixes wait behind a human approval gate before anything touches data.',
+    title: 'Deterministic first',
+    body: 'Rules before statistics, statistics before LLM. The expensive model only enters when determinism runs out — and then only over an evidence package.',
   },
 ];
 
@@ -29,23 +29,25 @@ dqagent init --dir ./demo
 # 2. no-LLM detection (L0 + L1), no API key needed
 dqagent detect --dir ./demo
 
-# 3. full patrol — inspect → attribute → remediate → approve
+# 3. full patrol — assert → diagnose → remediate → approve
 dqagent run --dir ./demo`;
 
 export default function Home(): ReactNode {
   const {siteConfig} = useDocusaurusContext();
   return (
-    <Layout description="Agentic data quality — an LLM multi-agent pipeline that detects, attributes, and remediates data issues with a human approval gate.">
+    <Layout description="Agentic data quality — everything is an assertion, and every judgment is evidence-backed.">
       <header className={styles.hero}>
         <div className={styles.heroText}>
           <span className={styles.eyebrow}>Open source · Agentic data quality</span>
           <Heading as="h1" className={styles.title}>
-            Inspect. Attribute. Remediate.
+            Everything is an assertion.
+            <br />
+            Every judgment is evidence-backed.
           </Heading>
           <p className={styles.subtitle}>
-            DataAgent upgrades rule-and-manual data governance into an LLM multi-agent
-            pipeline that detects issues, traces their root cause, and closes the loop —
-            with a human approval gate on every high-risk fix.
+            DataAgent closes the loop that rule-and-manual governance leaves open — it asserts,
+            traces root cause with evidence, proposes fixes, and gates high-risk changes behind
+            a human. Deterministic where it can be; an LLM only where it must.
           </p>
           <div className={styles.actions}>
             <Link
@@ -55,8 +57,8 @@ export default function Home(): ReactNode {
             </Link>
             <Link
               className="button button--secondary button--lg"
-              to="/docs/concepts/architecture">
-              Read the architecture
+              to="/docs/philosophy">
+              Read the philosophy
             </Link>
           </div>
         </div>

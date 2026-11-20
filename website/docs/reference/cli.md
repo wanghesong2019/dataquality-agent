@@ -16,7 +16,7 @@ dqagent <command> --dir <dir>
 |---|---|---|
 | `init` | Scaffold sample data + `.env` | no |
 | `detect` | No-LLM detection (L0 rules + L1 statistical) | no |
-| `run` | Full patrol (inspect → attribute → remediate → approve) | yes |
+| `run` | Full patrol (assert → diagnose → remediate → approve) | yes |
 | `eval` | Deterministic evaluation | — |
 
 ## `init`
@@ -36,9 +36,9 @@ dqagent detect --dir ./demo
 Builds the warehouse and runs the deterministic layers only (no LLM, no key). Prints each anomaly and its evidence, then a total. Exits 0 on success, 1 if the sample data is missing.
 
 ```text
-[l0_rules] dwd_orders.delivered null-rate spike (status=canceled)
-[l1_volume] daily_metrics.orders volume z-score 4.2
-共 7 条异常
+[null_rate] dwd_orders.order_delivered_customer_date delivered null rate 0.50
+[volume] daily_metrics.orders volume z-score 4.2
+7 anomalies
 ```
 
 ## `run`
@@ -47,7 +47,7 @@ Builds the warehouse and runs the deterministic layers only (no LLM, no key). Pr
 DEEPSEEK_API_KEY=… dqagent run --dir ./demo
 ```
 
-Runs the full supervisor pipeline. Returns the run id and status — `awaiting_approval` when a high-risk fix paused the pipeline for human approval.
+Runs the full patrol — assert, assemble evidence, diagnose, remediate, approve. Returns the run id and status — `awaiting_approval` when a high-risk fix paused the pipeline for human approval.
 
 ```text
 run_id=3f9a2c1d status=awaiting_approval
@@ -59,6 +59,8 @@ run_id=3f9a2c1d status=awaiting_approval
 dqagent eval --dir ./demo
 ```
 
-:::warning Not yet implemented
-`eval` is a placeholder in this release — it prints a notice and exits 0. Deterministic detection evaluation is available through the eval harness (`scripts/run_eval.py --no-llm`) and is enforced by the test suite. Wiring `eval` to the harness is on the roadmap.
-:::
+Runs the deterministic evaluation (no LLM) against the sample warehouse and prints detection precision / recall / F1 — the same gate the CI enforces.
+
+```text
+detection P/R/F1: P=1.000 R=1.000 F1=1.000
+```
