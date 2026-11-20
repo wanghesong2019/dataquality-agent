@@ -2,6 +2,8 @@
 import os
 from abc import ABC, abstractmethod
 
+from dataquality_agent.rag.tokenizer import tokenize
+
 
 class Embedder(ABC):
     @abstractmethod
@@ -20,7 +22,7 @@ class BagOfWordsEmbedder(Embedder):
         vecs = []
         for t in texts:
             v = [0.0] * len(self.vocab)
-            for w in t.split():
+            for w in tokenize(t):
                 if w in self._idx:
                     v[self._idx[w]] = 1.0
             vecs.append(v)

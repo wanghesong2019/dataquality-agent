@@ -1,7 +1,8 @@
 """L1 统计检测：学历史基线报偏差，0 LLM。"""
-import math
 import statistics
 from datetime import date
+
+from scipy.stats import chisquare
 
 from dataquality_agent.data.lineage import Lineage
 from dataquality_agent.models import Anomaly
@@ -14,7 +15,7 @@ def zscore_detect(current: float, baseline: list[float], threshold: float = 3.0)
     1. 隐含假设：基线数据近似服务正态分布。若基线严重偏态或重尾，3倍标准差阈值
     对应的实际置信度水平会显著偏离99.7%，需改用MAD等非参数方法
     2. 仅检测点异常：只判断单个current是否异常呢个，无法识别趋势突变、周期性破环等上下文异常
-    3. 对离群值敏感：均值和标准差本身受基线中已有离群值污染，可能导致阈值被拉宽而漏检；    
+    3. 对离群值敏感：均值和标准差本身受基线中已有离群值污染，可能导致阈值被拉宽而漏检；
     """
     if len(baseline) < 2:
         return False
@@ -25,48 +26,72 @@ def zscore_detect(current: float, baseline: list[float], threshold: float = 3.0)
     return abs(current - mean) / std > threshold
 
 
-def psi(actual: dict, expected: dict, epsilon: float = 1e-3) -> float:
+def chi2_drift(cur: dict, exp: dict, min_expected: float = 5.0) -> float:
+    """分类列分布漂移：卡方拟合优度检验，返回 p 值（越小越像漂移）。
+
+    cur = 最新窗口 {类别: 计数}（observed）；exp = 基线 {类别: 计数}（expected 来源）。
+    期望计数 = 基线比例 × 最新窗口总量。expected < min_expected 的稀有类别合并进
+    ``__other__``（Cochran 规则，保证卡方近似有效）；最新窗口出现基线没有的新类别直接判 p≈0。
     """
-    分布漂移：PSI 指数，越大漂移越严重。actual/expected 为 {类别: 计数}。
-    1. 含义解释：这段脚本实现的是PSI(Population Stability Index，群体稳定性指数)，这是风控、信用
-        评分及机器学习模型监控中衡量分布漂移的核心指标    
-    """
-    total_a = sum(actual.values())
-    total_e = sum(expected.values())
-    score = 0.0
-    for c in set(actual) | set(expected):
-        a = max(actual.get(c, 0) / total_a, epsilon)  # 下限防 log(0)
-        e = max(expected.get(c, 0) / total_e, epsilon)
-        score += (a - e) * math.log(a / e)
-    return score
+    obs_total = sum(cur.values())
+    exp_total = sum(exp.values())
+    if obs_total == 0 or exp_total == 0:
+        return 1.0  # 无观测或无限基，无法判定，不报
+    if any(o > 0 and exp.get(c, 0) == 0 for c, o in cur.items()):
+        return 0.0
+    ratio = obs_total / exp_total
+    obs: dict[str, float] = {}
+    expected: dict[str, float] = {}
+    obs_other = 0.0
+    exp_other = 0.0
+    for c, e_base in exp.items():
+        if e_base == 0:
+            continue
+        e = e_base * ratio
+        if e < min_expected:
+            obs_other += cur.get(c, 0)
+            exp_other += e
+        else:
+            obs[c] = cur.get(c, 0)
+            expected[c] = e
+    if exp_other > 0:
+        obs["__other__"] = obs_other
+        expected["__other__"] = exp_other
+    if len(expected) < 2:
+        return 1.0  # 合并后自由度不足，无法检验，不报
+    f_obs = [obs[c] for c in expected]
+    f_exp = [expected[c] for c in expected]
+    _, p = chisquare(f_obs, f_exp)
+    return float(p)
 
 
-def _cat_dist(conn, table: str, cat_col: str, date_col: str, day=None) -> dict[str, int]:
+def _cat_dist(adapter, table: str, cat_col: str, date_col: str, day=None) -> dict[str, int]:
     """某表某分类列在给定日期的计数分布。day 为 None 取全历史，否则只取那一天。"""
     if day is None:
-        rows = conn.execute(
+        rows = adapter.execute(
             f"SELECT {cat_col}, COUNT(*) FROM {table} GROUP BY {cat_col}"
-        ).fetchall()
+        )
     else:
-        rows = conn.execute(
-            f"SELECT {cat_col}, COUNT(*) FROM {table} WHERE {date_col}::DATE = ?::DATE GROUP BY {cat_col}",
-            [str(day)],
-        ).fetchall()
+        rows = adapter.execute(
+            f"SELECT {cat_col}, COUNT(*) FROM {table} WHERE {date_col}::DATE = '{day}'::DATE GROUP BY {cat_col}"
+        )
     return {r[0]: r[1] for r in rows}
 
 
-def detect_volume(conn, threshold: float = 3.0, lookback: int = 7,
-                  metrics: tuple[str, ...] = ("orders",)) -> list[Anomaly]:
+def detect_volume(adapter, threshold: float = 3.0, lookback: int = 7,
+                  metrics: tuple[str, ...] = ("orders",), min_count: int = 100) -> list[Anomaly]:
     """volume 点异常：最新一天各指标 vs 前 lookback 天基线（z-score）。多基线：orders + gmv。"""
     cols = ", ".join(metrics)
-    rows = conn.execute(
-        f"SELECT {cols} FROM daily_metrics ORDER BY order_date DESC LIMIT ?", [lookback + 1]
-    ).fetchall()
+    rows = adapter.execute(
+        f"SELECT {cols} FROM daily_metrics ORDER BY order_date DESC LIMIT {lookback + 1}"
+    )
     if len(rows) < 3:
         return []
     anomalies: list[Anomaly] = []
     for idx, metric in enumerate(metrics):
         current = rows[0][idx]
+        if current < min_count:
+            continue
         baseline = [r[idx] for r in rows[1:]]
         if zscore_detect(current, baseline, threshold):
             anomalies.append(Anomaly(
@@ -77,34 +102,39 @@ def detect_volume(conn, threshold: float = 3.0, lookback: int = 7,
     return anomalies
 
 
-def _dist_drift(conn, table: str, cat_col: str, date_col: str,
-                threshold: float, min_count: int) -> list[Anomaly]:
-    """某分类列「最新一天分布 vs 全历史基线」的 PSI 漂移检测（多基线共用的底层）。"""
-    latest = conn.execute(f"SELECT MAX({date_col}::DATE) FROM {table}").fetchone()[0]
+def _dist_drift(adapter, table: str, cat_col: str, date_col: str,
+                alpha: float, min_count: int) -> list[Anomaly]:
+    """某分类列「最新一天分布 vs 全历史基线」的卡方漂移检测（多基线共用的底层）。"""
+    latest = adapter.execute(f"SELECT MAX({date_col}::DATE) FROM {table}")[0][0]
     if latest is None:
         return []
-    cur = _cat_dist(conn, table, cat_col, date_col, latest)
+    cur = _cat_dist(adapter, table, cat_col, date_col, latest)
     if sum(cur.values()) < min_count:
-        return []  # 最新一天样本太少，无法判断分布漂移（防小样本误报）
-    exp = _cat_dist(conn, table, cat_col, date_col, None)
-    score = psi(cur, exp)
-    if score > threshold:
+        return []
+    exp = _cat_dist(adapter, table, cat_col, date_col, None)
+    p = chi2_drift(cur, exp)
+    if p < alpha:
         return [Anomaly(
             type="distribution", table=table, column=cat_col,
-            evidence=f"{cat_col} 分布漂移 PSI={score:.3f} 超阈值 {threshold}",
-            metric_value=round(score, 4), expected_range=f"PSI <= {threshold}",
+            evidence=f"{cat_col} 分布漂移 χ² p={p:.3g} < {alpha}",
+            metric_value=round(p, 6), expected_range=f"χ² p >= {alpha}",
         )]
     return []
 
 
-def detect_distribution(conn, threshold: float = 0.10, min_count: int = 10,
+def detect_distribution(adapter, alpha: float = 0.05, min_count: int = 100,
                         dimensions: tuple[tuple[str, str, str], ...] = (
                             ("dwd_orders", "order_status", "order_purchase_timestamp"),
                         )) -> list[Anomaly]:
-    """distribution 漂移：多基线（order_status + review_score）。每个维度 = (table, cat_col, date_col)。"""
+    """distribution 漂移：多基线（order_status + review_score）。每个维度 = (table, cat_col, date_col)。
+
+    分类列用卡方拟合优度（p < alpha 判漂移），不是 PSI——PSI 只对数值列分箱有意义。
+    alpha/min_count 当前硬编码：生产需按列标定（calibrate_from_history），见
+    docs/rag-flywheel-governance.md 第 5 节。
+    """
     anomalies: list[Anomaly] = []
     for table, cat_col, date_col in dimensions:
-        anomalies += _dist_drift(conn, table, cat_col, date_col, threshold, min_count)
+        anomalies += _dist_drift(adapter, table, cat_col, date_col, alpha, min_count)
     return anomalies
 
 
@@ -133,10 +163,10 @@ def schema_diff(prev: dict, curr: dict) -> list[str]:
 
 def detect_lineage_break(watermarks: dict[str, str], lineage: Lineage,
                          max_lag_days: int = 1) -> list[Anomaly]:
-    """血缘断裂：下游表更新水位线落后其任一上游超过 max_lag_days 则报。"""
+    """血缘断裂：下游表水位线落后其构建上游超过 max_lag_days 则报。"""
     anomalies: list[Anomaly] = []
     for table, wm in watermarks.items():
-        for upstream in lineage.upstream(table):
+        for upstream in lineage.build_upstream(table):
             up_wm = watermarks.get(upstream)
             if up_wm is None:
                 continue

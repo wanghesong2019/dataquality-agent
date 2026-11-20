@@ -256,7 +256,7 @@
 
 **本项目怎么答**：
 > 归因的"相似案例检索"是 dense（语义）+ BM25（关键词）两路召回、RRF 融合（`rag/retriever.py:25` 的 `search` 和 `:53` 的 `_rrf`，k=60）。Embedding 是可插拔的：配了 `EMBEDDING_BASE_URL` 走 OpenAI 兼容的 BGE-M3，否则词袋 fallback（`rag/embedder.py:63`）。
-> **RAG 深度（已做）**：BM25 现在是**标准的**（IDF + k1/b 长度归一化，`rag/retriever.py` 的 `_bm25`），并补了 `llm_rerank`（`rag/rerank.py`，LLM 精排，Cross-Encoder 的 LLM 版）和检索评测 `recall_at_k`/`mrr`（`eval/retrieval.py`）。**诚实边界**：案例库仍只有 4 条 demo，检索评测停在单元级，真正的 Recall@K 曲线要等案例库规模化、有标注集才能跑。
+> **RAG 深度（已做）**：BM25 现在是**标准的**（IDF + k1/b 长度归一化，`rag/retriever.py` 的 `_bm25`），`llm_rerank`（`rag/rerank.py`，LLM 精排，Cross-Encoder 的 LLM 版）**已实现待接线**（当前案例库小、top-3 收益边际，`build_cases_tool` 直接 `search(k=3)`）。**案例库已回填**：`rag/cases.py` 把可注入异常沉淀成案例（含 ground-truth 根因）+ 数据飞轮回流，端到端评测 `evaluate_retrieval` 实测 **Recall@3=1.0 / MRR=0.952**（10 静态 + 21 飞轮 = 31 案例）。**中文分词已修**：`text.split()` 对中文无效（修复前 Recall@3 只有 0.3），改用字符 bigram 分词（`rag/tokenizer.py`，无词典、离线），生产再换 jieba/BGE-M3。
 
 **来源**：llm-master rag_interview + 卡码笔记《RAG 大厂面试题汇总》+ 腾讯《为什么你的 RAG 检索不到答案》。
 
@@ -342,8 +342,8 @@
 - Trace = 因果树（定位单次链路），Log = 事件流（解释状态迁移），Metric = 趋势告警（P95/错误率/成本），四者用 trace_id 关联。
 
 **本项目怎么答**：
-> 每次 LLM 调用都埋一个 `Span`（记录输入/输出/token/耗时），`CostLedger` 累计 token/成本/调用次数（`observability/tracing.py`、`llm.py`）。可观测是**旁路**：`Tracer` 永远记内存、`backend` 可选（`end_span` 里 `if self.backend is not None` 才转发），监控挂了不拖垮主流程；`LangfuseBackend` 惰性导入 + 未配 key 就 no-op，由 `wiring.py` 按 `LANGFUSE_PUBLIC_KEY/SECRET_KEY` env 接进链路。评估报告直接输出 `total_tokens/total_cost/llm_calls/latency`（`eval/metrics.py`），所以"单次巡检 ~78 万 token / ~39s"是有账可查的。
-> **Token 计数（已修复）**：从「按字符估算」改为**读 API 返回的 `usage.total_tokens` 真实计数**（`llm.py:20` 的 `_count_tokens`），客户端不返回 usage 时才回退字符估算兜底。所以"78 万 token"现在有 API 依据，成本台账可信。
+> 每次 LLM 调用都埋一个 `Span`（记录输入/输出/token/耗时），`CostLedger` 累计 token/成本/调用次数（`observability/tracing.py`、`llm.py`）。可观测是**旁路**：`Tracer` 永远记内存、`backend` 可选（`end_span` 里 `if self.backend is not None` 才转发），监控挂了不拖垮主流程；`LangfuseBackend` 惰性导入 + 未配 key 就 no-op，由 `wiring.py` 按 `LANGFUSE_PUBLIC_KEY/SECRET_KEY` env 接进链路。评估报告直接输出 `total_tokens/total_cost/llm_calls/latency`（`eval/metrics.py`），所以"单次巡检 ~65-75 万 token / ~60-80s"是有账可查的。
+> **Token 计数（已修复）**：从「按字符估算」改为**读 API 返回的 `usage.total_tokens` 真实计数**（`llm.py:20` 的 `_count_tokens`），客户端不返回 usage 时才回退字符估算兜底。所以"65-75 万 token"现在有 API 依据，成本台账可信。
 
 **来源**：agent-interview observability + 阿里云《RDS Agent 可观测》。
 
@@ -361,6 +361,8 @@
 
 **本项目怎么答**：
 > 检测三层现在齐全：L0 规则断言（`detection/rules.py`，0-LLM）、L1 统计（`detection/stats.py`：血缘断裂/停更/schema 漂移/**volume(z-score)/distribution(PSI)**）、L2 LLM 语义（`detection/semantic.py`：采样 DWD 表让 LLM 找规则/统计抓不到的语义异常，`semantic_model` 缺省跳过）。分层逻辑：确定性优先、LLM 兜底——规则最快最可解释，统计学历史基线，LLM 只兜底语义层。
+
+> **L2 语义检测（已优化，2026-10-23）**：`detection/semantic.py` 的 `run_semantic_checks` 从「取前 3 行」改成「固定大小的列画像」（cardinality / null 率 / min-max / 示例值，token 成本不随行数增长）+ 数据字典（`TABLE_CODECS`，字段含义 + 合法取值域，材料来自 warehouse.py 字段注释）+ "Fail if" 失败用例。L2 仍是兜底层、不进 eval（`semantic_model` 缺省跳过），属加分项。
 
 ### 展开精讲：数仓分层为什么是「检测导向」而非「分析导向」？
 
@@ -395,7 +397,7 @@
 
 ### 🟡 P1 —— ✅ 已完成（2026-10-19）
 
-5. ~~RAG 深度~~ ✅ 标准 BM25(IDF) + `llm_rerank` + `recall_at_k`/`mrr`（`rag/retriever.py`、`rag/rerank.py`、`eval/retrieval.py`）
+5. ~~RAG 深度~~ ✅ 标准 BM25(IDF) + `recall_at_k`/`mrr`（`rag/retriever.py`、`eval/retrieval.py`）；`llm_rerank` 已实现待接线（`rag/rerank.py`）
 6. ~~L2 语义检测~~ ✅ `detection/semantic.py`（LLM 采样 DWD 表找语义异常，`semantic_model` 缺省跳过）
 7. ~~L1 volume/distribution 接线~~ ✅ `detect_volume`(z-score) + `detect_distribution`(PSI) 接入 `run_detection`
 
@@ -462,11 +464,52 @@
 - 架构：单图 5 节点 → **Supervisor + 4 专职 Agent**（orchestrator 分诊 + 规则检测 / 血缘归因 / SQL 排查 / 案例检索），各 Agent 独立 system prompt + 工具集 + 预算。
 - 对照指标：归因正确率、单次 token、latency、失败分型——与单图版 before/after 对比（这才是"可进化"的证据）。
 
+### 架构设计（2026-10-22 规划，2026-10-23 实现）
+
+**目标图**：`inspect(规则检测) → triage(分诊) → lineage → sql → cases → diagnose(聚合) → remediate → approve → report`
+
+**分诊（robust 设计，第一优先）**：triage 一次性给每个异常指派**一个**专职 Agent（不是全部跑一遍）。三道兜底：① 异常类型 → 确定性映射（orphan/停更/血缘断裂 → lineage，其余 → sql）；② 结构化 schema 约束 assignment 只允许 `{lineage, sql, cases}`，非法值落兜底；③ 分诊只做一次（不循环），专职 Agent 各处理分给自己的子集；temperature=0 可复现。
+
+**3 专职 Agent（拆 diagnose 的 4 工具）**：血缘归因 = `lineage` 工具；SQL排查 = `schema`+`sql`；案例检索 = `cases`。各独立 system prompt + 工具集 + max_steps 预算 + `trace_step` span，只处理分诊指派给自己的异常。规则检测（inspect）保持确定性。
+
+**状态与聚合**：`AgentState` 加 `assignments`（每个异常指派的专职 Agent）+ `findings`（每个异常的 finding）；`diagnose` 聚合节点读 findings → `submit_diagnosis`。
+
+**分阶段**：P1 抽 3 专职 Agent → P2 加 triage 分诊 → P3 findings + 聚合 + 接下游 → P4 `run_eval` before/after（已测：token 降 12~14 倍）。
+
+**诚实边界**：分诊的价值是「质量持平（归因 0.75）+ 职责清晰 + token 降 12~14 倍」，不是「归因正确率提升」。
+
+**图怎么落地到代码（节点 → 文件 → 融合机制）**：目标图那条链 = `agents/graph.py::build_supervisor_graph` 的 `add_node`/`add_edge` 顺序（graph.py:32-61），9 个节点逐一对到文件：
+
+| 链上名字 | 文件 / 函数 | 干什么 |
+|---------|------------|--------|
+| `inspect` | `agents/inspect.py` | 规则/统计/语义检测（L0/L1/L2），产出 `anomalies` |
+| `triage` | `agents/supervisor.py` `make_triage_node` | **分诊**：给每个异常指派一个专职 Agent |
+| `lineage` | `agents/specialists.py` `make_lineage_agent` | 血缘归因专职 Agent |
+| `sql` | `agents/specialists.py` `make_sql_agent` | SQL 排查专职 Agent |
+| `cases` | `agents/specialists.py` `make_cases_agent` | 案例检索专职 Agent |
+| `diagnose` | `agents/diagnose.py` `make_aggregate_diagnose_node` | 聚合：finding → Diagnosis |
+| `remediate` | `agents/remediate.py` | Executor+Critic 整改 |
+| `approve` | `agents/hitl.py` | 高危人工审批（条件路由，非必经） |
+| `report` | `agents/report.py` | 出报告 |
+
+- **`supervisor.py` = 分诊员，不调查**：只产出 `assignments` 列表（`["lineage","sql","cases",...]`，与 `anomalies` 逐位对齐，语义=「第 i 个异常交给谁」），并初始化 `findings` 为全空。三道兜底（supervisor.py:38-51）：① `_llm_triage` 调 LLM 用 `submit_triage` 工具返回 assignments；② `_default_assignment` 确定性映射（orphan/lineage_break/freshness → lineage，其余 → sql）；③ 非法值落兜底。
+- **`specialists.py` = 3 个专职 Agent，同一工厂造**：`_make_specialist`（specialists.py:50-67）只换名字/工具/提示词。融合机制就一行——每个专职节点只处理「分派给自己」的下标：
+
+  ```python
+  for i, a in enumerate(anomalies):
+      if i < len(assignments) and assignments[i] == name:
+          findings[i] = _investigate(a, model, tools, system_prompt, max_steps, tracer)
+  ```
+
+  所以图里 `triage → lineage → sql → cases` 是**串行**跑的，但靠 `assignments[i] == name` 过滤，**每个异常只被它被指派的那个专职 Agent 调查一次**，另外两个节点对它是 no-op。例：3 个异常分诊成 `["lineage","sql","cases"]` → lineage 节点只查第 0 个、sql 只查第 1 个、cases 只查第 2 个 → `diagnose` 聚合节点读三个 `findings` 逐个 `submit_diagnosis` 收敛成 Diagnosis。
+
+- **为什么这样拆**：对照单图版 `build_graph`（1 个 ReAct 带 4 工具自由探索）→ Supervisor 版（1 分诊员 + 3 单工具专职 Agent + 1 聚合诊断）。动机 = 分诊让「每个异常只跑 1 个专职 Agent」而非「每个异常跑全部 3 个」（token 65-75 万 → ~5 万）。专职 Agent 工具集更窄 → 探索空间更小 → 更聚焦、更快收敛、且每个 Agent 单独可测。
+
 ### 简历怎么呈现（一个项目，两代演进）
 
 **不拆成两个项目**——同一个业务换个架构写两遍 = 注水，必被识破。写成两代演进并主动讲"为什么改"：
 
-> "第一版单图 5 节点流水线，职责耦合、单点故障整链中断、token 预算难控；重构为 Supervisor + 4 专职 Agent，归因正确率 0.75 → X、单次 token 78 万 → Y。"
+> "第一版单图 5 节点流水线，职责耦合、单点故障整链中断、token 预算难控；重构为 Supervisor + 专职 Agent（orchestrator 分诊 + 规则检测/血缘归因/SQL排查/案例检索），归因正确率 0.75 → 0.75（持平）、单次 token 65-75 万 → ~5 万（降 12~14 倍，分诊让每个异常只产出一条聚焦 finding）。"
 
 一个有演进史的项目 > 两个平铺项目，同时证明架构判断力 + 可进化（呼应 §12 Data Flywheel）。
 
@@ -491,12 +534,14 @@
 | 3 | ~~DWS 补聚合~~ ✅ **已完成**：`seller_metrics`（GMV/单量/评分）、`category_metrics`（品类）、`payment_summary`（分期/支付方式）三张横截面聚合表；volume 从单指标(orders)扩成 orders+gmv、distribution 从单维(order_status)扩成 order_status+review_score，多基线落地，155 tests 全绿 | `data/warehouse.py` + `detection/stats.py` + `detection/runner.py` | "DWS 从一根独苗扩成 4 张聚合表，L1 volume/distribution 多基线" |
 | 4 | ~~跨表一致性检测~~ ✅ **已完成**：`check_amount_mismatch`/`check_state_conflict`/`check_zip_inconsistency` + `run_consistency_checks`，真实 Olist 检出 380 金额不一致 + 609 状态矛盾 + 8556 邮编矛盾；评测改 **baseline-aware**（真实问题从误报扣除，检测 F1 仍 1.0） | `detection/rules.py` + `eval/metrics.py` + `scripts/run_eval.py` | "检测在真实数据上抓到真实问题，评测口径诚实" |
 | 5 | ~~孤儿外键扩展~~ ✅ **已完成**：`check_orphan` 铺满 order_items→products/sellers、payments→orders、reviews→orders、orders→customers（真实 Olist 全 0，注入才触发）；orphan 注入改删叶子父表 products 避免爆炸半径 | `detection/rules.py` + `scripts/run_eval.py` | "FK 网全铺，注入口径与 ground-truth 对齐" |
-| 6 | ~~血缘做实~~ ✅ **已完成**：`lineage.py` 分两类边——FK 依赖（归因溯源用，保留）+ 构建血缘（ODS→DWD→DWS，8 DWD + 4 DWS 边全对齐 warehouse.py）；`Lineage.upstream("seller_metrics")` 能答出源头 | `data/lineage.py` | "血缘和真实 DWD/DWS 对齐，可回答'这字段源头在哪'" |
+| 6 | ~~血缘做实~~ ✅ **已完成**：`lineage.py` 分两类边——FK 依赖（归因溯源）+ 构建血缘（ODS→DWD→DWS 全对齐）；`detect_lineage_break` 用 `build_upstream()` 只查构建血缘、不查 FK 依赖（FK 边是引用关系，最新订单可能没订单项/评价是自然现象不是停更）；`_watermarks` 只算 orders + daily_metrics 是**有意为之**（只有它们有独立日期轴） | `data/lineage.py` + `detection/runner.py` + `detection/stats.py` | "血缘图 + 构建检测对齐，FK 依赖与日期水位线两个语义分开" |
 | 7 | ~~注入器扩展~~ ✅ **已完成**：`inject_amount_mismatch`/`inject_state_conflict`/`inject_zip_inconsistency` + ROOT_CAUSE_CATEGORY 对齐，123 tests 全绿。注：这三类是 **always-on**（真实数据基线就命中），注入 F1 平凡（=1.0），其「证明」靠真实基线（380/609/8556）而非注入 F1 | `data/injector.py` | "注入器覆盖全检测类型；always-on 检测靠真实基线证明" |
 
 **验证**：`pytest` 全绿 + `run_eval.py` 复跑，同步更新简历/文档里的数字（F1 / 归因 / 整改 / 端到端 / token）。
 
 > **去 demo 味的真解药是"小而完整 + 可复现"，不是堆体量**：面试官不在乎 100 万行 vs 1 亿行（DuckDB 都能跑），在乎"数仓模型像不像真的、检测能不能抓到真实问题类别"。"单机 DuckDB + Olist、评测可复现、面试可当场演示"本身是**优势**，前提是 9 表星型模型真跑起来、而非 2 表。
+
+> **血缘/停更检测的日期轴边界（2026-10-23 澄清）**：`_watermarks` 只算 orders + daily_metrics 两张表是**有意为之**——「数据停更」只对「有独立日期轴、数据更新不依赖 FK」的表有意义。order_items/reviews 的「最新数据」跟着 orders 走（最新订单可能还没订单项/评价，是自然现象），拿它们 join 的下单日期去比 latest 订单日期会必然误报「停更」（实测如此）；seller_metrics 等 DWS 聚合表无日期轴。已做：`lineage.py` 拆分 `build_upstream()`（仅构建血缘），`detect_lineage_break` 只查构建血缘、不查 FK 依赖——把「数据依赖（FK）」和「日期水位线（构建）」两个语义分开了。
 
 **来源**：用户 2026-10-21 数据层复盘（"demo 味 / 高射炮打蚊子"）+ 代码核对（warehouse.py / lineage.py / detection 表引用统计：orders×6、dwd_orders×5、daily_metrics×4、dwd_order_items×1，其余 0）。
 
@@ -510,5 +555,5 @@
 - **防幻觉**：证据闸门 + evidence_chain 以真实调用为准（丢弃自述）。
 - **安全**：SafeSQL 只读白名单，工具层断掉 DELETE。
 - **评估**：ground-truth 对齐 + 复检口径 + 可逆/丢失分型；LLM-as-Judge 配人工校准。
-- **数字**：F1=1.0 / 归因 0.75 / 整改 0.50（可逆 1.0 · 丢失 0.0）/ 端到端 0.50 / ~39s / ~78 万 token（真实 usage 计数）。
+- **数字**：F1=1.0 / 归因 0.75 / 整改 0.50（可逆 1.0 · 丢失 0.0）/ 端到端 0.50 / ~60-80s / ~65-75 万 token（真实 usage 计数）。
 - **诚实边界**：数据丢失异常整改 0.0、血缘硬编码、案例库 4 条 demo——每个都能变成"我清楚这里为什么这样做、下一步怎么补"的加分叙事。

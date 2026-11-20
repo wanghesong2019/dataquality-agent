@@ -95,6 +95,39 @@ def test_inject_schema(mini_warehouse):
     assert "order_approved_at" not in cols
 
 
+def test_inject_orphan_orders_customers(mini_warehouse):
+    """4.4：孤儿 orders→customers（叶子父表，删 customers 只孤儿 orders、不级联）。"""
+    inj = Injector(mini_warehouse)
+    conn = inj.connect()
+    gt = inj.run(conn, [{"type": "orphan", "child_table": "orders", "parent_table": "customers",
+                         "parent_pk": "customer_id", "child_fk": "customer_id", "n": 1}])
+    a = gt.injections[0]
+    assert a.type == "orphan"
+    assert a.table == "orders"
+    assert a.root_cause_category == "上游任务失败"
+    orphan = conn.execute(
+        "SELECT COUNT(*) FROM orders o LEFT JOIN customers c ON o.customer_id = c.customer_id "
+        "WHERE c.customer_id IS NULL AND o.customer_id IS NOT NULL"
+    ).fetchone()[0]
+    assert orphan > 0
+
+
+def test_inject_time_inversion_second_column(mini_warehouse):
+    """4.4：时间倒挂第二列（预估送达日期 < 下单日期）。"""
+    inj = Injector(mini_warehouse)
+    conn = inj.connect()
+    gt = inj.run(conn, [{"type": "time_inversion", "n": 1, "column": "order_estimated_delivery_date"}])
+    a = gt.injections[0]
+    assert a.type == "time_inversion"
+    assert a.column == "order_estimated_delivery_date"
+    assert a.root_cause_category == "ETL逻辑变更"
+    n = conn.execute(
+        "SELECT COUNT(*) FROM orders WHERE order_estimated_delivery_date IS NOT NULL "
+        "AND order_estimated_delivery_date < order_purchase_timestamp"
+    ).fetchone()[0]
+    assert n >= 1
+
+
 def test_inject_amount_mismatch(mini_warehouse):
     inj = Injector(mini_warehouse)
     conn = inj.connect()

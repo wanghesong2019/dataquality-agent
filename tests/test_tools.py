@@ -1,13 +1,12 @@
 import pytest
 
-from dataquality_agent.data.injector import Injector
-from dataquality_agent.tools.metadata import get_table_schema
+from dataquality_agent.adapters import DuckDBAdapter
 from dataquality_agent.tools.sql import SafeSQL, SQLGuardError, validate_sql
 
 
 @pytest.fixture
 def safe(mini_warehouse):
-    return SafeSQL(Injector(mini_warehouse).connect(), whitelist={"orders", "order_items"})
+    return SafeSQL(DuckDBAdapter(mini_warehouse.db_path), whitelist={"orders", "order_items"})
 
 
 def test_validate_sql_rejects_write():
@@ -36,7 +35,21 @@ def test_safe_sql_raises_on_write(safe):
         safe.run("DELETE FROM orders")
 
 
-def test_get_table_schema(mini_warehouse):
-    schema = get_table_schema(Injector(mini_warehouse).connect(), "orders")
-    assert "order_id" in schema
-    assert "order_status" in schema
+class _Recorder:
+    """记录 SafeSQL 向 adapter 请求的 max_rows，观察护栏是否在物化前限行。"""
+
+    def __init__(self):
+        self.requested_max_rows = None
+
+    def execute(self, sql, max_rows=None):
+        self.requested_max_rows = max_rows
+        return [(1,) for _ in range(max_rows if max_rows is not None else 100)]
+
+
+def test_safe_sql_fetches_at_most_max_rows_plus_one():
+    recorder = _Recorder()
+    safe = SafeSQL(recorder, whitelist={"orders"}, max_rows=2)
+    with pytest.raises(SQLGuardError):
+        safe.run("SELECT * FROM orders")
+    # 护栏应请求 max_rows+1 行（多一行用于探测是否超限），而非整表 fetchall
+    assert recorder.requested_max_rows == 3

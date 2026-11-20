@@ -1,8 +1,6 @@
 """SQL 只读执行器（安全护栏：只读、禁多语句、表白名单、行数上限）。"""
 import re
 
-import duckdb
-
 
 class SQLGuardError(Exception):
     """SQL 护栏违规。"""
@@ -26,8 +24,8 @@ def validate_sql(sql: str, whitelist: set[str]) -> str:
 class SafeSQL:
     """Agent 唯一允许使用的 SQL 执行入口——所有 SQL 都经过护栏校验。"""
 
-    def __init__(self, conn: duckdb.DuckDBPyConnection, whitelist: set[str], max_rows: int = 10000):
-        self.conn = conn
+    def __init__(self, adapter, whitelist: set[str], max_rows: int = 10000):
+        self.adapter = adapter
         self.whitelist = whitelist
         self.max_rows = max_rows
 
@@ -35,7 +33,8 @@ class SafeSQL:
         err = validate_sql(sql, self.whitelist)
         if err:
             raise SQLGuardError(err)
-        rows = self.conn.execute(sql).fetchmany(self.max_rows + 1)
+        # 多取一行用于探测是否超限：adapter 用 fetchmany 而非 fetchall，避免大结果集先整表物化进内存
+        rows = self.adapter.execute(sql, max_rows=self.max_rows + 1)
         if len(rows) > self.max_rows:
             raise SQLGuardError(f"result exceeds max_rows ({self.max_rows})")
         return rows

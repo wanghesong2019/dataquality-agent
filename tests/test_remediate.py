@@ -12,14 +12,9 @@ def _state(anomaly, diagnosis):
     return {"anomalies": [anomaly], "diagnoses": [diagnosis]}
 
 
-class FakeResult:
-    def fetchall(self):
-        return [("orders",), ("order_items",)]
-
-
-class FakeConn:
-    def execute(self, sql):
-        return FakeResult()
+class FakeAdapter:
+    def list_tables(self):
+        return ["orders", "order_items"]
 
 
 class FakeModel:
@@ -42,7 +37,7 @@ def test_remediate_node_high_risk():
         "sql_or_suggestion": "DELETE FROM orders WHERE order_id IN (SELECT order_id FROM orders GROUP BY order_id HAVING COUNT(*) > 1)",
         "risk_level": "high",
     })
-    node = make_remediate_node(model, FakeConn())
+    node = make_remediate_node(model, FakeAdapter())
     result = node(_state(Anomaly(type="duplicate", table="orders"),
                          Diagnosis(root_cause_category="脏数据注入", confidence=0.9)))
     r = result["remediations"][0]
@@ -52,7 +47,7 @@ def test_remediate_node_high_risk():
 
 def test_remediate_node_low_risk():
     model = FakeModel({"action_type": "add_rule", "sql_or_suggestion": "price > 0", "risk_level": "low"})
-    node = make_remediate_node(model, FakeConn())
+    node = make_remediate_node(model, FakeAdapter())
     result = node(_state(Anomaly(type="value_range", table="order_items", column="price"),
                          Diagnosis(root_cause_category="脏数据注入", confidence=0.8)))
     assert result["remediations"][0].requires_approval is False  # 低危 → 自动执行
@@ -63,7 +58,7 @@ def test_remediate_node_bad_response_degrades():
         def chat(self, messages, tools=None, tool_choice=None, response_format=None):
             return {"content": "抱歉我不会", "tool_calls": []}
 
-    node = make_remediate_node(BadModel(), FakeConn())
+    node = make_remediate_node(BadModel(), FakeAdapter())
     result = node(_state(Anomaly(type="orphan", table="order_items"),
                          Diagnosis(root_cause_category="上游任务失败", confidence=0.5)))
     r = result["remediations"][0]
