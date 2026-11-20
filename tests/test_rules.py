@@ -35,6 +35,35 @@ def test_duplicate_evidence_structured(mini_warehouse):
     assert "重复" in anomalies[0].summary    # summary 兼容旧文本
 
 
+def test_all_l0_anomalies_carry_evidence(mini_warehouse):
+    """迁移后，所有 L0 规则（含跨表一致性）的 fail 异常都带结构化 Evidence。"""
+    from dataquality_agent.models import Evidence
+
+    inj = Injector(mini_warehouse)
+    conn = inj.connect()
+    adapter = DuckDBAdapter(conn)
+    inj.run(conn, [
+        {"type": "duplicate", "table": "orders", "key_cols": ["order_id"], "n": 1},
+        {"type": "orphan", "child_table": "order_items", "parent_table": "orders",
+         "parent_pk": "order_id", "child_fk": "order_id", "n": 1},
+        {"type": "null_rate", "table": "orders", "column": "order_delivered_customer_date",
+         "status_col": "order_status", "status_value": "delivered",
+         "key_cols": ["order_id"], "n": 1},
+    ])
+    conn.execute("UPDATE order_items SET price = -5.0 WHERE order_id = 'o1'")  # negative
+    conn.execute("UPDATE payments SET payment_value = 999.0 WHERE order_id = 'o1' AND payment_sequential = 1")  # amount_mismatch
+    conn.execute("INSERT INTO reviews VALUES ('r9', 'o3', 1, '', '', '2018-01-05 00:00:00', '2018-01-06 00:00:00')")  # state_conflict
+    conn.execute("INSERT INTO geolocation VALUES ('01001', -23.6, -46.7, 'campinas', 'SP')")  # zip_inconsistency
+
+    anomalies = run_rule_checks(adapter) + run_consistency_checks(adapter)
+    assert anomalies, "注入后应有多条异常"
+    for a in anomalies:
+        assert isinstance(a.evidence, Evidence), f"{a.type} 证据不是 Evidence"
+        assert a.evidence.query.strip(), f"{a.type} 的 query 为空"
+        # 行型规则正常采样到 rows；跨表 join 型在命中实体被并发删除时 rows 可为空（Review Focus #2），此时靠 expected/actual
+        assert a.evidence.rows or (a.evidence.expected or a.evidence.actual), f"{a.type} 无任何证据内容"
+
+
 def test_detect_orphan(mini_warehouse):
     inj = Injector(mini_warehouse)
     conn = inj.connect()
@@ -62,7 +91,11 @@ def test_detect_amount_mismatch(mini_warehouse):
     conn = Injector(mini_warehouse).connect()
     adapter = DuckDBAdapter(conn)
     conn.execute("UPDATE payments SET payment_value = 999.0 WHERE order_id = 'o1' AND payment_sequential = 1")
-    assert "amount_mismatch" in [a.type for a in run_consistency_checks(adapter)]
+    anomalies = run_consistency_checks(adapter)
+    assert "amount_mismatch" in [a.type for a in anomalies]
+    a = next(x for x in anomalies if x.type == "amount_mismatch")
+    assert a.evidence.rows, "amount_mismatch 应采样到 mismatch 的订单行"
+    assert a.evidence.query.strip()
 
 
 def test_detect_state_conflict(mini_warehouse):
