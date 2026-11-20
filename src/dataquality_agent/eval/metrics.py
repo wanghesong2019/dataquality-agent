@@ -61,6 +61,7 @@ class EvalReport:
     llm_calls: int = 0
     trajectory: TrajectoryReport | None = None
     failure_taxonomy: FailureTaxonomy | None = None
+    anomalies: list = field(default_factory=list)  # 检测出的异常（含结构化证据，供证据完整性门禁）
 
 
 def _keys(items) -> set:

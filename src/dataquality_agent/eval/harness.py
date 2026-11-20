@@ -86,6 +86,7 @@ def run_eval(injected, detected_before, diagnoses, detected_after, stats, cost_l
             llm_calls=cost_ledger.llm_calls if cost_ledger else 0,
             trajectory=None,
             failure_taxonomy=None,
+            anomalies=det_all,
         )
     return EvalReport(
         detection=evaluate_detection(det_all, injected, baseline),
@@ -99,4 +100,5 @@ def run_eval(injected, detected_before, diagnoses, detected_after, stats, cost_l
         llm_calls=cost_ledger.llm_calls if cost_ledger else 0,
         trajectory=evaluate_trajectories(diagnoses),
         failure_taxonomy=classify_failures(detected_before, diagnoses, detected_after, injected),
+        anomalies=det_all,
     )
