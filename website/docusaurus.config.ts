@@ -49,7 +49,7 @@ const config: Config = {
         docs: {
           sidebarPath: './sidebars.ts',
           editUrl:
-            'https://github.com/wanghesong2019/dataquality-agent/tree/main/website/',
+            'https://github.com/wanghesong2019/dataquality-agent/edit/master/website/',
         },
         blog: false,
         theme: {
