@@ -74,7 +74,7 @@ submit_remediation（remediate.py:133），但它是 Executor+Critic 修订循�
 """
 import json
 
-from dataquality_agent.models import Anomaly, Diagnosis
+from dataquality_agent.models import Anomaly, Diagnosis, Evidence
 from dataquality_agent.observability.tracing import trace_step
 from dataquality_agent.prompts import (
     DIAGNOSE_SYSTEM_PROMPT,
@@ -203,5 +203,95 @@ def make_aggregate_diagnose_node(model):
         for i, a in enumerate(anomalies):
             finding = findings[i] if i < len(findings) else ""
             diagnoses.append(_aggregate_one(a, finding, model))
+        return {"diagnoses": diagnoses}
+    return diagnose
+
+
+def assemble_evidence(anomaly: Anomaly, adapter, lineage, retriever) -> list[str]:
+    """确定性装配证据包：异常自身结构化证据 + 上游血缘 + 表 schema + 相似案例，全部无 LLM。
+
+    「取证 vs 判定」分离的取证侧：这里只确定性取数，不下任何结论。每个来源单独 try/except，
+    失败降级为「<source>: 不可用」，不让单个来源拖垮整包。
+    """
+    lines: list[str] = []
+    ev = anomaly.evidence
+
+    # 1. 异常自身证据（检测层已抓好的结构化 Evidence）
+    parts: list[str] = []
+    if ev.query:
+        parts.append(f"query: {ev.query}")
+    if ev.rows:
+        parts.append(f"rows({len(ev.rows)}): {ev.rows[:3]}")  # 只带前 3 行样本，token-cheap
+    if ev.expected:
+        parts.append(f"expected: {ev.expected}")
+    if ev.actual:
+        parts.append(f"actual: {ev.actual}")
+    if parts:
+        lines.append("异常证据: " + " | ".join(parts))
+
+    # 2. 上游血缘
+    try:
+        ups = lineage.upstream(anomaly.table)
+        if ups:
+            lines.append(f"上游血缘({anomaly.table}): {ups}")
+    except Exception:
+        lines.append("上游血缘: 不可用")
+
+    # 3. 表 schema
+    try:
+        schema = adapter.describe_table(anomaly.table)
+        if schema:
+            lines.append(f"schema({anomaly.table}): {schema}")
+    except Exception:
+        lines.append("schema: 不可用")
+
+    # 4. 相似案例
+    try:
+        query = f"{anomaly.type} {anomaly.table} {anomaly.column or ''}".strip()
+        cases = retriever.search(query, k=3)
+        if cases:
+            lines.append("相似案例: " + str(cases[:3]))
+    except Exception:
+        lines.append("相似案例: 不可用")
+
+    return lines
+
+
+def _thin_diagnose_one(anomaly: Anomaly, model, adapter, lineage, retriever) -> Diagnosis:
+    """单一异常：装配证据包 → 单次 LLM 调用 → Diagnosis（带结构化 evidence）。
+
+    证据包为空时直接降级「未知」，不浪费 LLM 调用（确定性优先）。
+    """
+    ev = anomaly.evidence
+    # 裸结论（无 query/rows/expected/actual）→ 直接降级「未知」，不浪费 LLM 调用（判断皆有据）
+    if not (ev.query or ev.rows or ev.expected or ev.actual):
+        return Diagnosis(root_cause_category="未知", confidence=0.0, evidence=[ev])
+    evidence = assemble_evidence(anomaly, adapter, lineage, retriever)
+    resp = model.chat(
+        [{"role": "user", "content": build_aggregate_diagnose_prompt(anomaly, evidence)}],
+        tools=[SUBMIT_DIAGNOSIS_SCHEMA],
+        tool_choice={"type": "function", "function": {"name": "submit_diagnosis"}},
+    )
+    for call in (resp or {}).get("tool_calls", []):
+        if call.get("function", {}).get("name") == "submit_diagnosis":
+            try:
+                args = json.loads(call["function"]["arguments"])
+                args.pop("evidence_chain", None)   # 丢弃自述，证据链以脚本装配的为准
+                args.pop("matched_cases", None)
+                return Diagnosis(**args, evidence_chain=evidence, evidence=[anomaly.evidence])
+            except Exception:
+                break
+    return Diagnosis(root_cause_category="未知", confidence=0.0, evidence_chain=evidence,
+                     evidence=[anomaly.evidence])
+
+
+def make_thin_diagnose_node(model, adapter, lineage, retriever):
+    """返回薄归因节点：确定性装配证据包 + 单一 LLM 调用（不再跑工具循环、无分诊）。"""
+    tracer = getattr(model, "tracer", None)
+
+    @trace_step(tracer, "node:diagnose")
+    def diagnose(state):
+        anomalies = state.get("anomalies", [])
+        diagnoses = [_thin_diagnose_one(a, model, adapter, lineage, retriever) for a in anomalies]
         return {"diagnoses": diagnoses}
     return diagnose
