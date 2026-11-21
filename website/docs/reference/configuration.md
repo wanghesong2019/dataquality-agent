@@ -22,7 +22,8 @@ All configuration lives in one `Settings` dataclass (`dataquality_agent.config`)
 |---|---|---|
 | `zscore_threshold` | `3.0` | ✅ volume anomaly z-score |
 | `distribution_alpha` | `0.05` | ✅ distribution drift chi-square p-value |
-| `null_rate_threshold` | `0.20` | ⚠️ not wired (see below) |
+| `null_rate_threshold` | `0.05` | ✅ delivered-date null-rate check (default catalog) |
+| `assertions_path` | `None` | ✅ declarative L0 catalog (default: bundled Olist) |
 
 ## Reproducibility
 
@@ -32,7 +33,7 @@ All configuration lives in one `Settings` dataclass (`dataquality_agent.config`)
 
 ## A note on `null_rate_threshold`
 
-`null_rate_threshold` is declared but **not currently read** by the L0 null-rate checks. The built-in null-rate check uses per-column, semantically chosen thresholds (e.g. `0.05` for delivery-date, `0.0` for customer id) rather than one global value, because a single null-rate threshold across all columns produces false alarms. Until this is reconciled, treat the field as a placeholder — the L0 thresholds live in `detection/rules.py`.
+`null_rate_threshold` drives the **delivered-date** null-rate check in the default assertion catalog (`orders.order_delivered_customer_date`, `where order_status = 'delivered'`). The customer-id not-null check uses its own `0.0` threshold — per-column thresholds live in the catalog's assertions, not in one global value.
 
 ## Loading a `.env`
 

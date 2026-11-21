@@ -10,7 +10,7 @@ description: Point the deterministic evaluation harness at your own warehouse an
 
 ## 1. Point the harness at your warehouse
 
-`run_deterministic_eval(settings, injection_specs)` takes a `Settings` and an injection plan. `Settings` needs two things: `data_dir` (where your CSV source tables live) and `db_path` (where the DuckDB warehouse should be built). In v0.1 the warehouse is DuckDB; v0.2 adds a Postgres `WarehouseAdapter` so this same harness runs against a real engine.
+`run_deterministic_eval(settings, injection_specs)` takes a `Settings` and an injection plan. `Settings` needs two things: `data_dir` (where your CSV source tables live) and `db_path` (where the DuckDB warehouse should be built). Note this harness is DuckDB-specific — the build, inject, and clone steps all run on DuckDB. The `PostgresAdapter` (v0.3.0) lets `run_detection` inspect a real Postgres, but the deterministic eval harness does not drive it yet.
 
 ```python
 from dataquality_agent.config import Settings
@@ -41,7 +41,7 @@ DataAgent uses two databases, and only one is about your data:
 
 | What | Where | Pluggable today? |
 |---|---|---|
-| The warehouse you inspect | `WarehouseAdapter` (DuckDB in v0.1) | Yes — Postgres in v0.2 |
+| The warehouse you inspect | `WarehouseAdapter` (DuckDB · Postgres) | Yes — `DuckDBAdapter` / `PostgresAdapter` ship with the core |
 | HITL approval state (checkpoints + run registry) | SQLite (`checkpoints.sqlite`, `runs.sqlite`) | v0.1 SQLite only |
 
-The SQLite state store is the v0.1 reference implementation. You can move it with the `CHECKPOINT_PATH` env var, but you can't swap the engine yet. Production teams typically run this on Postgres; that arrives with v0.2 — LangGraph already ships a `PostgresSaver`, and `RunStore` will grow a pluggable backend alongside it.
+The SQLite state store is still the only backend. You can move it with the `CHECKPOINT_PATH` env var, but you can't swap the engine yet — the warehouse connector grew a Postgres in v0.3.0, but the HITL state store has not. LangGraph already ships a `PostgresSaver`, and `RunStore` will grow a pluggable backend alongside it.

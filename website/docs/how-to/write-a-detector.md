@@ -8,6 +8,12 @@ description: Add your own check as a pluggable Detector.
 
 A detector is a single check: a `name` plus a `detect(adapter, ctx)` method that returns a list of `Anomaly` objects. Register it once and every patrol runs it, in the order you registered it.
 
+## Declare first (L0)
+
+For the five generic L0 check types — `unique`, `not_null`, `null_rate`, `value_range`, `referential` — you don't write a detector: you **declare** the check in YAML and pass it with `dqagent detect --assertions` (or `run_detection(assertions_path=...)`). The framework compiles each declaration into an evidence-carrying check against the same `check_*` reference implementations. See the [Detectors reference](/docs/reference/detectors#declarative-l0-assertions).
+
+Reach for a custom detector only when your check is *not* one of those five — a cross-table formula, a statistical baseline, or semantic logic.
+
 ## The protocol
 
 ```python
@@ -58,10 +64,12 @@ class Anomaly(BaseModel):
     table: str
     column: str | None = None
     severity: str = "medium" # low / medium / high
-    evidence: str = ""       # a human-readable proof
+    evidence: Evidence        # structured: query + rows + expected vs actual + lineage/blast-radius
     metric_value: float | str | None = None
     expected_range: str | None = None
 ```
+
+`evidence` is a structured `Evidence` object (not a string) — pass the triggering query and offending rows so the anomaly is evidence-backed, not a bare conclusion.
 
 ## Failure isolation
 

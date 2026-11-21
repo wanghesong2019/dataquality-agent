@@ -41,6 +41,14 @@ Builds the warehouse and runs the deterministic layers only (no LLM, no key). Pr
 7 anomalies
 ```
 
+### Declare your own L0 assertions
+
+```bash
+dqagent detect --dir ./demo --assertions assertions.yaml
+```
+
+`--assertions` points at a YAML assertion catalog (see the [Detectors reference](/docs/reference/detectors#declarative-l0-assertions)); it **replaces** the bundled Olist default. No key needed.
+
 ## `run`
 
 ```bash

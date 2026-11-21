@@ -8,6 +8,56 @@ description: Release notes for DataAgent.
 
 All notable changes are recorded here. The project follows [Semantic Versioning](https://semver.org/): `0.x` allows breaking changes; `1.0` freezes the public API, CLI, and evaluation methodology.
 
+## [0.3.0] — 2026-11-21
+
+First real warehouse connector + declarative L0 assertion catalog — "everything is an assertion" moves from a runtime structure to a configuration-time declaration.
+
+### Added
+
+- `PostgresAdapter` (psycopg3, `[postgres]` extra) — the four primitives against a real Postgres.
+- Declarative L0 assertion catalog: YAML → `Assertion` → the `check_*` reference implementations (five types: `unique`/`not_null`/`null_rate`/`value_range`/`referential`).
+- Default Olist catalog (17 assertions); `dqagent detect --assertions`; `run_detection(assertions_path=...)`.
+- `deploy/warehouse/docker-compose.yml` + CI `postgres` service.
+
+### Changed
+
+- `run_rule_checks` = catalog checks + hardcoded time/future-date checks; `run_consistency_checks` = amount/state/zip only.
+- `check_null_rate` accepts a raw `where` clause.
+
+### Fixed
+
+- Hardcoded time/future-date checks isolated — a non-Olist warehouse no longer discards the user's catalog results.
+- `PostgresAdapter.describe_table` scoped to `public`.
+
+## [0.2.1] — 2026-11-21
+
+Patch release: fix a token-cost regression in the thin agent and a flaky eval crash.
+
+### Fixed
+
+- `Retriever.search` returned dense vectors that `assemble_evidence` serialized into every prompt (~32k tokens/call); now returns only `{id, text}`.
+- Tool schemas no longer echo code-populated evidence fields.
+- `DuckDBAdapter.execute` rolls back on failure, fixing the eval `TransactionException`.
+
+### Measured
+
+- Thin agent attribution 1.000 / ~85k tokens beats the supervisor 0.750 / ~228k (cost-normalized ~3.6×).
+
+## [0.2.0] — 2026-11-20
+
+Land the design philosophy — evidence becomes a first-class structured object; attribution thinned to a single evidence-consuming LLM call.
+
+### Added
+
+- `Evidence` model (`query`/`rows`/`expected`/`actual`/`lineage`/`blast_radius`).
+- Detection-layer row sampling (`sample_offending`) on every L0 fail.
+- `assemble_evidence` + `make_thin_diagnose_node` (one LLM call per anomaly).
+
+### Changed
+
+- `Anomaly.evidence` is now `Evidence` (was `str`).
+- `wiring.py` builds the linear thin-agent graph (supervisor retained as an eval arm).
+
 ## [0.1.1] — 2026-11-20
 
 Patch release: clear the deferred minors from the v0.1.0 review.

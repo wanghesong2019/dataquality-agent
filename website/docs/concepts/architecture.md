@@ -29,7 +29,8 @@ flowchart TD
     subgraph Adapters["Warehouse adapters"]
         WA["WarehouseAdapter — the evidence interface"]
         Duck["DuckDBAdapter (reference)"]
-        Future["Postgres · StarRocks (roadmap)"]
+        PG["PostgresAdapter (psycopg3)"]
+        Future["StarRocks (roadmap)"]
     end
 
     Obs["Observability — step trace · cost ledger"]
@@ -38,6 +39,7 @@ flowchart TD
     Core --> Adapters
     Core --> Obs
     WA --> Duck
+    WA --> PG
     WA --> Future
     Adapters --> DB[("Warehouse")]
 ```
@@ -68,7 +70,7 @@ The core is the assertion lifecycle described above. Every stage boundary is a p
 
 ### Warehouse adapters
 
-The `WarehouseAdapter` protocol (`connect` / `execute` / `list_tables` / `describe_table` / `row_count`) is the **only** way the core reads a warehouse — and in the philosophy, it is the *evidence interface*: it exposes what it can query and pulls on demand, never dumping metadata into context. DuckDB ships as the reference implementation; Postgres and StarRocks are on the connector roadmap. See [Warehouse adapter](/docs/reference/warehouse-adapter).
+The `WarehouseAdapter` protocol (`connect` / `execute` / `list_tables` / `describe_table` / `row_count`) is the **only** way the core reads a warehouse — and in the philosophy, it is the *evidence interface*: it exposes what it can query and pulls on demand, never dumping metadata into context. DuckDB and Postgres ship with the core; StarRocks is on the connector roadmap. See [Warehouse adapter](/docs/reference/warehouse-adapter).
 
 ## Four pluggable seams
 

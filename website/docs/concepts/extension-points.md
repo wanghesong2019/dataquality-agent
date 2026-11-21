@@ -38,7 +38,7 @@ flowchart LR
 | `RemediationPolicy` | how to turn a diagnosis into a fix, and its risk | "a duplicate row → `DELETE` (reversible)" |
 | `CaseStore` / RAG | a store of past incidents to retrieve | "this null-spike looks like last week's upstream job failure" |
 
-Each seam is a small protocol, and the core ships with a working reference for each — see the [How-to guides](/docs/how-to/connect-a-warehouse).
+Each seam is a small protocol, and the core ships with a working reference for each — see the [How-to guides](/docs/how-to/connect-a-warehouse). For the five generic L0 check types, the `Detector` seam has a shortcut: **declare** them in YAML instead of writing a detector — see [Declarative L0 assertions](/docs/reference/detectors#declarative-l0-assertions).
 
 ## The permission model
 

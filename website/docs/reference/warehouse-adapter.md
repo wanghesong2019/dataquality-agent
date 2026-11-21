@@ -1,7 +1,7 @@
 ---
 sidebar_position: 2
 title: Warehouse adapter
-description: Reference for the WarehouseAdapter protocol and DuckDBAdapter.
+description: Reference for the WarehouseAdapter protocol, DuckDBAdapter, and PostgresAdapter.
 ---
 
 # Warehouse adapter
@@ -50,3 +50,18 @@ adapter = DuckDBAdapter(existing_conn)         # wraps a connection it does not 
 
 - A path-backed adapter opens lazily on first use and can be `close()`d.
 - A connection-backed adapter (`close()` sets the handle to `None` without closing the shared connection) is used internally so the data injector and the detectors share one connection.
+
+## `PostgresAdapter` (psycopg3)
+
+```bash
+pip install dataquality-agent[postgres]
+```
+
+```python
+from dataquality_agent.adapters import PostgresAdapter
+
+adapter = PostgresAdapter("postgresql://user:pass@host:5432/dw")   # libpq DSN, opened lazily
+adapter = PostgresAdapter(existing_conn)                            # wraps an existing psycopg.Connection
+```
+
+Same lifecycle as `DuckDBAdapter`: a DSN-backed adapter opens lazily and can be `close()`d; a connection-backed adapter leaves the shared connection alone. `describe_table` is parameterized (`%s`) and scoped to the `public` schema; `execute` rolls back on failure so one bad statement never poisons later reads.

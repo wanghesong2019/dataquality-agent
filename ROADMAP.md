@@ -24,8 +24,8 @@ This is a *planning basis*, not a contract. It is anchored to [the philosophy](h
 
 | Seam | What it is | Now | Next |
 |---|---|---|---|
-| `WarehouseAdapter` | the evidence interface | DuckDB | Postgres (v0.3.0) → StarRocks / … |
-| `Detector` | the assertion | L0/L1/L2 hardcoded | declarative L0 (v0.3.0) → L1 → L2 |
+| `WarehouseAdapter` | the evidence interface | DuckDB · Postgres | StarRocks / … |
+| `Detector` | the assertion | declarative L0 (YAML) · L1/L2 | declarative L1 → L2 |
 | `RemediationPolicy` | the remediation assertion | Executor + Critic | richer fix policies / risk taxonomy |
 | `CaseStore` / RAG | reuse of evidence | retriever + rerank | memory governance (provenance + validity) |
 
@@ -37,10 +37,7 @@ This is a *planning basis*, not a contract. It is anchored to [the philosophy](h
 - **v0.1.1** — deferred minors cleared (thresholds wired, no-LLM eval, robustness). *Axiom 3: determinism hardened.*
 - **v0.2.0** — the philosophy landed: `Evidence` becomes a structured first-class object; attribution is thinned to a single evidence-consuming LLM call. *Axiom 2: evidence stops being prose and becomes data.*
 - **v0.2.1** — measured, not asserted: token blowup fixed, eval flakiness fixed; thin agent 1.000 attribution / ~85k tokens beats the supervisor 0.750 / ~228k. *P7: the thin agent is shipped because it was measured to win, not because it is fashionable.*
-
-### In progress
-
-- **v0.3.0** 🚧 — `PostgresAdapter` (first real warehouse) + declarative L0 assertion catalog (YAML → `Detector`). *Axiom 1: the declaration half of an assertion is extracted from code into data. Axiom 2: the evidence interface reaches a real warehouse.* [design](../docs/specs/2026-11-21-v030-design.md)
+- **v0.3.0** — `PostgresAdapter` (first real warehouse) + declarative L0 assertion catalog (YAML → `Detector`). *Axiom 1: the declaration half of an assertion is extracted from code into data; Axiom 2: the evidence interface reaches a real warehouse.*
 
 ### Planned (ordered by the philosophy)
 
