@@ -48,7 +48,7 @@ adapter = DuckDBAdapter("warehouse.duckdb")   # owns and lazily opens the file
 adapter = DuckDBAdapter(existing_conn)         # wraps a connection it does not own
 ```
 
-- A path-backed adapter opens lazily on first use and can be `close()`d.
+- A path-backed adapter opens lazily on first use and can be closed.
 - A connection-backed adapter (`close()` sets the handle to `None` without closing the shared connection) is used internally so the data injector and the detectors share one connection.
 
 ## `PostgresAdapter` (psycopg3)

@@ -32,7 +32,7 @@ adapter = PostgresAdapter("postgresql://user:pass@host:5432/dw")   # a libpq DSN
 adapter = PostgresAdapter(existing_conn)                            # wraps an existing psycopg.Connection
 ```
 
-A DSN-backed adapter opens lazily on first use and can be `close()`d; a connection-backed adapter never closes the shared connection.
+A DSN-backed adapter opens lazily on first use and can be closed; a connection-backed adapter never closes the shared connection.
 
 ## The protocol (implement a new engine)
 

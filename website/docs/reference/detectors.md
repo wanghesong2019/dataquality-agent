@@ -67,6 +67,8 @@ assertions:
     parent_table: products
 ```
 
+The table maps each `type` to the fields it needs (**Required**) and the ones that refine it (**Optional**). The field glossary below the table explains what each field means.
+
 | Type | Required fields | Optional |
 |---|---|---|
 | `unique` | `table`, `columns` (1..n) | `severity` |
@@ -74,6 +76,20 @@ assertions:
 | `null_rate` | `table`, `column`, `max_rate` | `where`, `severity` |
 | `value_range` | `table`, `column`, `min`/`max` (≥1) | `severity` |
 | `referential` | `child_table`, `child_column`, `parent_table` | `parent_column` (defaults to `child_column`), `severity` |
+
+**Field meanings:**
+
+- `name` — a unique label for the assertion; it is carried onto any anomaly it raises, so you can trace a finding back to the rule that fired.
+- `type` — one of the five checks above; it selects the `check_*` implementation.
+- `table` — the table to check. (`referential` uses `child_table`/`parent_table` instead.)
+- `column` — a single column name, for the checks that look at one column (`not_null`, `null_rate`, `value_range`).
+- `columns` — a list of column names for `unique`, to assert uniqueness over a composite key (e.g. `[order_id, seller_id]`).
+- `max_rate` — the allowed null fraction (0–1) for `null_rate`; the check fires when the measured null ratio exceeds it.
+- `where` — a raw SQL `WHERE` clause (without the word `WHERE`) that subsets the rows the `null_rate` check inspects, e.g. `order_status = 'delivered'`.
+- `min` / `max` — the allowed bounds for `value_range`; give at least one, both for a closed interval.
+- `child_table` / `child_column` — the referencing side of `referential`: the table and column that hold the foreign key.
+- `parent_table` / `parent_column` — the referenced side; `parent_column` defaults to the same name as `child_column` when omitted.
+- `severity` — `low` / `medium` / `high`, stamped onto every anomaly this assertion emits (default `medium`).
 
 Pass it with `dqagent detect --assertions assertions.yaml` or `run_detection(assertions_path=...)`. A user catalog **replaces** the bundled Olist default (17 assertions) — list the defaults too if you want them. Every assertion still emits a structured `Evidence` on fail.
 
