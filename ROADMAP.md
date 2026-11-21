@@ -46,6 +46,8 @@ This is a *planning basis*, not a contract. It is anchored to [the philosophy](h
 
 - **v0.4.0** 🎯 — declarative **L1** (freshness / volume / distribution / schema / lineage). Requires the historical-baseline-snapshot concept deferred from v0.2. *The "statistics" rung of the L0→L1→L2 ladder.*
 - **v0.5.0** 🎯 — declarative **L2** semantic assertions + **memory governance** for the case store (provenance + validity period, killing anti-pattern #6 "memory as RAG"). *The "LLM" rung, landing on evidence, plus the reuse-of-evidence seam gets governance.*
+  - **Acceptance — escalation gate**: L2 runs *only* when an assertion's deterministic verifier returns `undecidable` (reason: missing column/table, no baseline snapshot, or a natural-language declaration). The input is an evidence package, the output a structured verdict. "No anomaly found" is a *pass*, never a reason to invoke L2.
+  - **Prerequisite**: per-assertion observability — turn the silent `except` in `run_catalog_checks` into an `undecidable(reason=...)` signal (today deferred-minor #5), so the runner can see *which* assertions bailed and escalate exactly those.
 - **v1.0** 🔮 — thin platform shell (`dqagent serve` → dashboard + HITL) as a first-class deployment. *The seams stop being a library and become a service.*
 
 ## Why this order
