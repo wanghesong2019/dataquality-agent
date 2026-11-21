@@ -36,7 +36,7 @@ def _cmd_detect(args) -> int:
 
     settings = Settings(data_dir=str(data_dir), db_path=str(data_dir / "warehouse.duckdb"))
     Warehouse(settings).build()
-    report = run_detection(DuckDBAdapter(settings.db_path))  # 无 semantic_model → 无 LLM
+    report = run_detection(DuckDBAdapter(settings.db_path), assertions_path=args.assertions_path)  # 无 semantic_model → 无 LLM
     if report.anomalies:
         for a in report.anomalies:
             print(f"[{a.type}] {a.table}.{a.column or ''} {a.summary}")
@@ -85,6 +85,8 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("detect", help="无 LLM 检测（L0/L1）")
     p.add_argument("--dir", required=True)
+    p.add_argument("--assertions", dest="assertions_path", default=None,
+                   help="声明式 L0 断言目录 YAML 路径（缺省内置 Olist 默认目录）")
     p.set_defaults(func=_cmd_detect)
 
     p = sub.add_parser("run", help="完整巡检（需 LLM key）")

@@ -28,3 +28,22 @@ def test_eval_runs_deterministic_eval(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "F1=" in out          # 真实输出 F1，而非空壳
     assert "待实现" not in out
+
+
+def test_detect_passes_assertions_path(tmp_path, monkeypatch):
+    d = str(tmp_path)
+    assert main(["init", "--dir", d]) == 0
+    yaml = tmp_path / "assertions.yaml"
+    yaml.write_text("assertions:\n  - {name: x, type: not_null, table: orders, column: customer_id}\n",
+                    encoding="utf-8")
+
+    import dataquality_agent.detection.runner as runner
+    captured = {}
+
+    def fake(adapter, **kwargs):
+        captured["assertions_path"] = kwargs.get("assertions_path")
+        return runner.DetectionReport()
+
+    monkeypatch.setattr(runner, "run_detection", fake)
+    assert main(["detect", "--dir", d, "--assertions", str(yaml)]) == 0
+    assert captured["assertions_path"] == str(yaml)
