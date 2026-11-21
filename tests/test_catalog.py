@@ -2,7 +2,9 @@ import pytest
 
 from dataquality_agent.adapters import DuckDBAdapter
 from dataquality_agent.data.injector import Injector
-from dataquality_agent.detection.catalog import ASSERTION_TYPES, Assertion, load_assertions, run_catalog_checks
+from dataquality_agent.detection.catalog import (
+    ASSERTION_TYPES, Assertion, build_assertion_detector, default_assertions, load_assertions, run_catalog_checks,
+)
 from dataquality_agent.models import Evidence
 
 
@@ -115,3 +117,21 @@ def test_single_assertion_failure_isolated(mini_warehouse):
     good = Assertion(name="dup", type="unique", table="orders", columns=["order_id"])
     anomalies = run_catalog_checks(adapter, [bad, good])
     assert [a.type for a in anomalies] == ["duplicate"]  # bad skipped, good still runs
+
+
+def test_default_catalog_covers_generic_l0():
+    a = default_assertions()
+    assert len(a) == 17
+    assert {x.type for x in a} == {"unique", "not_null", "null_rate", "value_range", "referential"}
+    # the delivered-date null_rate assertion takes its threshold from the argument
+    nr = next(x for x in a if x.type == "null_rate" and x.where)
+    assert nr.max_rate == 0.05
+    assert next(x for x in default_assertions(0.99) if x.name == nr.name).max_rate == 0.99
+
+
+def test_build_detector_is_detector(mini_warehouse):
+    conn = Injector(mini_warehouse).connect()
+    conn.execute("INSERT INTO orders SELECT * FROM orders LIMIT 1")
+    det = build_assertion_detector(default_assertions())
+    assert det.name == "assertion_catalog"
+    assert "duplicate" in [x.type for x in det.detect(DuckDBAdapter(conn), {})]

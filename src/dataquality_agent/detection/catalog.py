@@ -140,3 +140,45 @@ def run_catalog_checks(adapter, assertions: list[Assertion]) -> list[Anomaly]:
         except Exception:
             pass  # 隔离：一条坏断言（坏 where / 坏列）不拖垮整次巡检
     return anomalies
+
+
+def default_assertions(null_rate_threshold: float = 0.05) -> list[Assertion]:
+    """内置 Olist 默认断言目录（= 现状 run_rule_checks 的通用 L0 规则，17 条）。
+
+    delivered 日期空值检查的阈值从参数注入，让 Settings.null_rate_threshold 继续控制它。
+    """
+    return [
+        # unique
+        Assertion(name="orders_unique_order_id", type="unique", table="orders", columns=["order_id"]),
+        Assertion(name="order_items_unique_id", type="unique", table="order_items", columns=["order_id", "order_item_id"]),
+        Assertion(name="payments_unique_id", type="unique", table="payments", columns=["order_id", "payment_sequential"]),
+        Assertion(name="reviews_unique_id", type="unique", table="reviews", columns=["review_id"]),
+        # referential（星型模型 FK 网）
+        Assertion(name="order_items_ref_orders", type="referential", child_table="order_items", child_column="order_id", parent_table="orders"),
+        Assertion(name="order_items_ref_products", type="referential", child_table="order_items", child_column="product_id", parent_table="products"),
+        Assertion(name="order_items_ref_sellers", type="referential", child_table="order_items", child_column="seller_id", parent_table="sellers"),
+        Assertion(name="payments_ref_orders", type="referential", child_table="payments", child_column="order_id", parent_table="orders"),
+        Assertion(name="reviews_ref_orders", type="referential", child_table="reviews", child_column="order_id", parent_table="orders"),
+        Assertion(name="orders_ref_customers", type="referential", child_table="orders", child_column="customer_id", parent_table="customers"),
+        # value_range
+        Assertion(name="order_items_price_non_negative", type="value_range", table="order_items", column="price", min=0),
+        Assertion(name="order_items_freight_non_negative", type="value_range", table="order_items", column="freight_value", min=0),
+        Assertion(name="products_weight_non_negative", type="value_range", table="products", column="product_weight_g", min=0),
+        Assertion(name="reviews_score_in_range", type="value_range", table="reviews", column="review_score", min=1, max=5),
+        Assertion(name="payments_installments_in_range", type="value_range", table="payments", column="payment_installments", min=1, max=24),
+        # null_rate / not_null
+        Assertion(name="orders_delivered_date_null_rate", type="null_rate", table="orders", column="order_delivered_customer_date",
+                  max_rate=null_rate_threshold, where="order_status = 'delivered'"),
+        Assertion(name="orders_customer_not_null", type="not_null", table="orders", column="customer_id"),
+    ]
+
+
+def build_assertion_detector(assertions: list[Assertion]):
+    """把断言列表包成一个 Detector（满足 name + detect(adapter, ctx) 协议），供注册进 DETECTORS。"""
+    class CatalogDetector:
+        name = "assertion_catalog"
+
+        def detect(self, adapter, ctx):
+            return run_catalog_checks(adapter, assertions)
+
+    return CatalogDetector()
