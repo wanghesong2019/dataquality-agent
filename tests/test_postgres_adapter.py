@@ -73,3 +73,14 @@ def test_describe_table_parameterized(pg):
     a = PostgresAdapter(pg)
     assert a.describe_table("t; DROP TABLE t") == {}  # treated as a literal
     assert "t" in a.list_tables()                     # table survived
+
+
+def test_describe_table_scoped_to_public(pg):
+    pg.execute("DROP SCHEMA IF EXISTS other CASCADE")
+    pg.execute("CREATE SCHEMA other")
+    pg.execute("CREATE TABLE other.t (id INTEGER)")
+    pg.commit()
+    a = PostgresAdapter(pg)
+    assert a.describe_table("t") == {}  # 't' is in 'other', not 'public'
+    pg.execute("DROP SCHEMA IF EXISTS other CASCADE")
+    pg.commit()

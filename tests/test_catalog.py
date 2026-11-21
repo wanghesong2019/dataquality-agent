@@ -146,3 +146,15 @@ def test_no_yaml_behavior_unchanged(mini_warehouse):
     # products FK orphan now surfaces via run_rule_checks (catalog), not run_consistency_checks
     conn.execute("DELETE FROM products WHERE product_id = 'p1'")
     assert "orphan" in [a.type for a in run_rule_checks(DuckDBAdapter(conn))]
+
+
+def test_custom_catalog_survives_non_olist_warehouse(tmp_path):
+    """非 Olist 数仓（无 orders 表）+ 自定义目录 → 目录结果不被硬编码 time/future 检查拖垮。"""
+    import duckdb
+
+    conn = duckdb.connect(str(tmp_path / "sales.duckdb"))
+    conn.execute("CREATE TABLE sales AS SELECT * FROM (VALUES (1), (1)) AS t(id)")
+    adapter = DuckDBAdapter(conn)
+    assertions = [Assertion(name="sales_unique", type="unique", table="sales", columns=["id"])]
+    anomalies = run_rule_checks(adapter, assertions=assertions)
+    assert [a.type for a in anomalies] == ["duplicate"]

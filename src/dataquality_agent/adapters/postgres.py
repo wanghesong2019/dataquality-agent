@@ -57,10 +57,10 @@ class PostgresAdapter(WarehouseAdapter):
         return [r[0] for r in rows]
 
     def describe_table(self, table: str) -> dict[str, str]:
-        # 参数化 %s 防注入；表不存在返回空 dict
+        # 参数化 %s 防注入；限定 public schema（与 list_tables/row_count 一致）；表不存在返回空 dict
         cur = self._ensure().execute(
             "SELECT column_name, data_type FROM information_schema.columns "
-            "WHERE table_name = %s ORDER BY ordinal_position",
+            "WHERE table_schema = 'public' AND table_name = %s ORDER BY ordinal_position",
             (table,),
         )
         return {r[0]: r[1] for r in cur.fetchall()}

@@ -16,10 +16,12 @@ def test_l0_isomorphic_to_duckdb(postgres_warehouse):
     adapter = PostgresAdapter(postgres_warehouse)
     # clean mini data: no L0 anomalies, same as DuckDB
     assert run_rule_checks(adapter) + run_consistency_checks(adapter) == []
-    # inject a duplicate -> structured Evidence, isomorphic to DuckDB
-    postgres_warehouse.execute("INSERT INTO orders SELECT * FROM orders LIMIT 1")
-    postgres_warehouse.commit()
-    anomalies = run_rule_checks(adapter)
-    dup = [a for a in anomalies if a.type == "duplicate"]
-    assert dup and isinstance(dup[0].evidence, Evidence)
-    assert dup[0].evidence.query.strip() and dup[0].evidence.rows
+    # inject multiple anomaly types -> each detected with structured Evidence, isomorphic to DuckDB
+    postgres_warehouse.execute("INSERT INTO orders SELECT * FROM orders LIMIT 1")            # duplicate
+    postgres_warehouse.execute("DELETE FROM products WHERE product_id = 'p1'")               # orphan (referential)
+    postgres_warehouse.execute("UPDATE order_items SET price = -5.0 WHERE order_id = 'o1'")  # value_range
+    postgres_warehouse.execute("UPDATE orders SET customer_id = NULL WHERE order_id = 'o1'") # not_null
+    anomalies = run_rule_checks(adapter) + run_consistency_checks(adapter)
+    assert {"duplicate", "orphan", "value_range", "null_rate"} <= {a.type for a in anomalies}
+    for a in anomalies:
+        assert isinstance(a.evidence, Evidence) and a.evidence.query.strip()

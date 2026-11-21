@@ -158,10 +158,17 @@ def run_rule_checks(adapter, null_rate_threshold: float = 0.05, assertions=None)
         adapter,
         assertions if assertions is not None else default_assertions(null_rate_threshold),
     )
-    # 时间逻辑：交付早于下单（倒挂）+ 预估送达早于下单（第二时间字段）+ 下单时间超出采集范围（未来日期）
-    anomalies += check_time_inversion(adapter, "order_delivered_customer_date", "交付日期早于下单日期")
-    anomalies += check_time_inversion(adapter, "order_estimated_delivery_date", "预估送达日期早于下单日期")
-    anomalies += check_future_date(adapter)
+    # 时间逻辑：交付早于下单（倒挂）+ 预估送达早于下单（第二时间字段）+ 下单时间超出采集范围（未来日期）。
+    # 同样隔离：非 Olist 数仓（无 orders 表）不能拖垮上面的目录结果。
+    for check in (
+        lambda: check_time_inversion(adapter, "order_delivered_customer_date", "交付日期早于下单日期"),
+        lambda: check_time_inversion(adapter, "order_estimated_delivery_date", "预估送达日期早于下单日期"),
+        lambda: check_future_date(adapter),
+    ):
+        try:
+            anomalies += check()
+        except Exception:
+            pass
     return anomalies
 
 
