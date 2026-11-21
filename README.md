@@ -37,7 +37,8 @@ Traditional data-quality tools (Great Expectations, Soda, Deequ, Griffin) **dete
 │        │  all reads go through one interface
 │        ▼
 │    WarehouseAdapter  (connect · read-only query · metadata)
-│        ├─ DuckDBAdapter (reference)   └─ (roadmap) Postgres / StarRocks / …
+│        ├─ DuckDBAdapter (reference) · PostgresAdapter (psycopg3)
+│        └─ (roadmap) StarRocks / …
 └  Observability  step-level trace + cost ledger
 ```
 
@@ -61,6 +62,8 @@ dqagent run --dir ./demo
 ## Features
 
 - **Three-layer detection** — L0 deterministic rules (null/unique/range/referential/cross-table) · L1 statistical (freshness/volume/distribution/schema/lineage) · L2 LLM semantic.
+- **Declarative L0 assertions** — declare `unique` / `not_null` / `null_rate` / `value_range` / `referential` checks in YAML; the framework compiles them into evidence-carrying detectors (`dqagent detect --assertions`).
+- **Warehouse connectors** — `DuckDBAdapter` (reference) + `PostgresAdapter` (psycopg3); the kernel reads every warehouse through the one `WarehouseAdapter` interface.
 - **Thin attribution** — a deterministic step assembles an evidence package (anomaly evidence + lineage + schema + similar cases), then a single LLM call turns it into a root-cause diagnosis.
 - **Remediation + HITL** — Executor + Critic generate risk-graded fixes; high-risk fixes require human approval (`only-propose, never-execute`).
 - **Read-only SQL guard** — every agent SQL goes through `SafeSQL` (SELECT-only, table whitelist, row cap).
@@ -80,14 +83,14 @@ On the bundled Olist benchmark (21 injected anomalies, `deepseek-chat` at temper
 
 Detection F1 is **1.0** (deterministic; the same injector ground-truth gates CI). The thin agent is a *measured* choice, not a stylistic one — see [the philosophy](https://wanghesong2019.github.io/dataquality-agent/docs/philosophy). One caveat: these are benchmark numbers, not a universal claim.
 
-Run the deterministic no-LLM gate locally: `pytest -q` (218 tests) — it runs the injector's ground-truth against detection on the bundled sample data.
+Run the deterministic no-LLM gate locally: `pytest -q` (240 tests) — it runs the injector's ground-truth against detection on the bundled sample data.
 
 ## Project structure
 
 ```
 src/dataquality_agent/
-├── adapters/        # WarehouseAdapter protocol + DuckDBAdapter
-├── detection/       # Detector protocol + registry, L0/L1/L2
+├── adapters/        # WarehouseAdapter protocol + DuckDBAdapter + PostgresAdapter
+├── detection/       # Detector protocol + registry, L0/L1/L2 + declarative catalog
 ├── agents/          # inspect, thin diagnose, remediate, hitl, report
 ├── eval/            # metrics, judge, harness, trajectory
 ├── api/             # FastAPI app, PatrolRuntime + RunStore, wiring

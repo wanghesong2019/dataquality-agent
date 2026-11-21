@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-11-21
+
+Land the first real warehouse connector and the declarative L0 assertion catalog — "everything is an assertion" moves from a runtime structure to a configuration-time declaration.
+
+### Added
+
+- `PostgresAdapter` (psycopg3, optional `[postgres]` extra) — the `WarehouseAdapter` four primitives against a real Postgres, with parameterized `describe_table` and rollback-on-failure.
+- Declarative L0 assertion catalog (`detection/catalog.py`): YAML `assertions.yaml` → `Assertion` → the existing `check_*` reference implementations. Five types: `unique` / `not_null` / `null_rate` / `value_range` / `referential`.
+- Default Olist catalog (17 assertions) — the generic L0 rules extracted from code; a user YAML **replaces** it.
+- `dqagent detect --assertions <yaml>` and `run_detection(assertions_path=...)`.
+- `deploy/warehouse/docker-compose.yml` (Postgres via domestic mirror) + CI `postgres` service.
+
+### Changed
+
+- `run_rule_checks` = catalog checks + hardcoded time/future-date checks; `run_consistency_checks` = amount/state/zip only (the 5 orphan FK checks moved into the default catalog).
+- `check_null_rate` accepts a raw `where` clause.
+
+### Fixed
+
+- Hardcoded time/future-date checks are isolated like the catalog — a non-Olist warehouse no longer discards the user's catalog results.
+- `PostgresAdapter.describe_table` scoped to `public` (aligned with `list_tables`/`row_count`).
+
+### Measured
+
+- 240 tests green; the Postgres integration test proves the L0 layer produces `Evidence`-carrying anomalies isomorphic to DuckDB on a real Postgres.
+
 ## [0.2.1] - 2026-11-21
 
 Patch release: fix a token-cost regression in the thin agent and a flaky eval-harness crash.

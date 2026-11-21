@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dataquality-agent"
-version = "0.2.1"
+version = "0.3.0"
 description = "数据质量巡检 + 异常归因 + 整改闭环 DataAgent"
 requires-python = ">=3.10"
 dependencies = [
