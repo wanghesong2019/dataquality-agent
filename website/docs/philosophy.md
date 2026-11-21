@@ -75,6 +75,19 @@ This is simultaneously "cheaper" (the optimization target is $/successful-task, 
 | P6 | **Idempotence** — safe to retry, no double side effects | Axiom 3 |
 | P7 | **Evaluation gate** — cost-normalized success rate + pass^k (not pass@k) + holdout | Axiom 2 |
 
+## Measured, not asserted
+
+These axioms are not rhetoric. On the bundled Olist benchmark (21 injected anomalies, `deepseek-chat` at temperature 0), the thin evidence-consuming agent is measured to beat the multi-agent supervisor it replaced:
+
+| | Thin agent | Supervisor (multi-agent) |
+|---|---|---|
+| Attribution accuracy | **1.000** | 0.750 |
+| Tokens | **~85k** | ~228k |
+| Latency | **~107s** | ~210s |
+| LLM calls | **~67** | ~141 |
+
+Cost-normalized, the thin agent wins ~3.6×. The supervisor is the "agents for the sake of agents" anti-pattern below, and the measurement — not the fashion — is why it is not shipped. In the spirit of P7: this is one benchmark, not a universal claim.
+
 ## What violates the philosophy
 
 Any of the following, found in review, violates this philosophy and should be rejected or fixed:
