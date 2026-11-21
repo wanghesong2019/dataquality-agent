@@ -8,6 +8,8 @@ from pathlib import Path
 
 import yaml
 
+from dataquality_agent.models import Anomaly
+
 
 ASSERTION_TYPES = {"unique", "not_null", "null_rate", "value_range", "referential"}
 
@@ -30,6 +32,36 @@ class Assertion:
     parent_table: str | None = None
     parent_column: str | None = None
     severity: str = "medium"
+
+    def __post_init__(self):
+        # referential 的 parent_column 缺省 = child_column（load_assertions 也补，这里兜住直接构造的路径）
+        if self.type == "referential" and self.parent_column is None:
+            self.parent_column = self.child_column
+
+    def check(self, adapter) -> list[Anomaly]:
+        """按 type 分发到 rules.py 的 check_* 参考实现，复用 sample_offending + Evidence；应用 severity。
+
+        check_* 函数在方法内懒导入：rules.py 会反过来 import 本模块（default_assertions / run_catalog_checks），
+        顶层互导会成环，运行时导入则无环。
+        """
+        from dataquality_agent.detection.rules import (
+            check_duplicate, check_null_rate, check_orphan, check_value_range,
+        )
+        if self.type == "unique":
+            result = check_duplicate(adapter, self.table, self.columns)
+        elif self.type == "not_null":
+            result = check_null_rate(adapter, self.table, self.column, threshold=0.0)
+        elif self.type == "null_rate":
+            result = check_null_rate(adapter, self.table, self.column, threshold=self.max_rate, where=self.where)
+        elif self.type == "value_range":
+            result = check_value_range(adapter, self.table, self.column, self.min, self.max)
+        elif self.type == "referential":
+            result = check_orphan(adapter, self.child_table, self.parent_table, self.child_column, self.parent_column)
+        else:
+            result = []
+        for a in result:
+            a.severity = self.severity
+        return result
 
 
 def _require(item: dict, key: str, name: str) -> str:
@@ -97,3 +129,14 @@ def load_assertions(path) -> list[Assertion]:
                                         parent_column=item.get("parent_column", child_column),
                                         severity=severity))
     return assertions
+
+
+def run_catalog_checks(adapter, assertions: list[Assertion]) -> list[Anomaly]:
+    """逐个跑断言，单条失败隔离（不拖垮整次巡检），合并异常。"""
+    anomalies: list[Anomaly] = []
+    for assertion in assertions:
+        try:
+            anomalies += assertion.check(adapter)
+        except Exception:
+            pass  # 隔离：一条坏断言（坏 where / 坏列）不拖垮整次巡检
+    return anomalies
