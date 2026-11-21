@@ -6,6 +6,7 @@ from dataquality_agent.config import Settings
 from dataquality_agent.data.lineage import Lineage
 from dataquality_agent.detection import rules, stats
 from dataquality_agent.detection.base import DETECTORS
+from dataquality_agent.detection.catalog import load_assertions
 from dataquality_agent.detection.semantic import run_semantic_checks
 from dataquality_agent.models import Anomaly
 
@@ -47,7 +48,7 @@ class _L0Rules:
     name = "l0_rules"
 
     def detect(self, adapter, ctx):
-        return rules.run_rule_checks(adapter, ctx["null_rate_threshold"])
+        return rules.run_rule_checks(adapter, ctx["null_rate_threshold"], ctx.get("assertions"))
 
 
 class _L0CrossTable:
@@ -126,13 +127,15 @@ def run_detection(adapter, detectors=None, *,
                   semantic_model=None,
                   zscore_threshold: float | None = None,
                   distribution_alpha: float | None = None,
-                  null_rate_threshold: float | None = None) -> DetectionReport:
+                  null_rate_threshold: float | None = None,
+                  assertions_path: str | None = None) -> DetectionReport:
     """跑全部检测（dataset 级 → column 级），返回报告 + 各检查耗时。
 
     - current_date：freshness 的参照日期（ISO 字符串）；缺省 = 数据全局最新水位线（干净数据不误报）。
     - expected_schema：schema 漂移的期望快照 {table: {col: type}}；缺省跳过 schema 检测。
     - semantic_model：L2 语义检测用的 LLM（需有 .chat）；缺省跳过 L2。
     - zscore_threshold / distribution_alpha / null_rate_threshold：缺省从 Settings 取（单一配置源）。
+    - assertions_path：声明式 L0 断言目录 YAML 路径；缺省走内置 Olist 默认目录。
     - detectors：检测器注册表 {name: Detector}；缺省用内置 DETECTORS。
     单个检测器失败不拖垮整次巡检（隔离，stats[name] 记 -1.0）。
     """
@@ -158,6 +161,7 @@ def run_detection(adapter, detectors=None, *,
         "zscore_threshold": zscore_threshold,
         "distribution_alpha": distribution_alpha,
         "null_rate_threshold": null_rate_threshold,
+        "assertions": load_assertions(assertions_path) if assertions_path else None,
     }
 
     for name, det in dets.items():

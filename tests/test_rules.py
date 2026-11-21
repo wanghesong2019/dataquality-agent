@@ -130,7 +130,7 @@ def test_detect_orphan_fk_product(mini_warehouse):
     conn = Injector(mini_warehouse).connect()
     adapter = DuckDBAdapter(conn)
     conn.execute("DELETE FROM products WHERE product_id = 'p1'")
-    assert "orphan" in [a.type for a in run_consistency_checks(adapter)]
+    assert "orphan" in [a.type for a in run_rule_checks(adapter)]
 
 
 def test_null_rate_threshold_controls_detection(mini_warehouse):

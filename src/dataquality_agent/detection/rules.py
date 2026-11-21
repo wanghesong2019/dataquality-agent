@@ -1,6 +1,8 @@
 """L0 规则断言检测：确定性、0 LLM、最可解释。"""
 from dataquality_agent.models import Anomaly, Evidence
 
+from dataquality_agent.detection.catalog import default_assertions, run_catalog_checks
+
 
 def sample_offending(adapter, table: str, where_sql: str, limit: int = 20) -> list[dict]:
     """采样命中行：SELECT * FROM {table} WHERE {where_sql} LIMIT {limit}，列名对齐返回 list[dict]。
@@ -147,23 +149,15 @@ def check_null_rate(adapter, table: str, column: str, status_col: str | None = N
     return []
 
 
-def run_rule_checks(adapter, null_rate_threshold: float = 0.05) -> list[Anomaly]:
-    """跑全部 L0 规则，返回结构化异常清单。"""
-    anomalies: list[Anomaly] = []
-    anomalies += check_duplicate(adapter, "orders", ["order_id"])
-    anomalies += check_duplicate(adapter, "order_items", ["order_id", "order_item_id"])
-    anomalies += check_duplicate(adapter, "payments", ["order_id", "payment_sequential"])
-    anomalies += check_duplicate(adapter, "reviews", ["review_id"])
-    anomalies += check_orphan(adapter, "order_items", "orders", "order_id", "order_id")
-    anomalies += check_negative(adapter, "order_items", "price")
-    anomalies += check_negative(adapter, "order_items", "freight_value")
-    anomalies += check_negative(adapter, "products", "product_weight_g")
-    anomalies += check_value_range(adapter, "reviews", "review_score", 1, 5)
-    anomalies += check_value_range(adapter, "payments", "payment_installments", 1, 24)
-    # 空值按 status 分层：delivered 订单的交付日期不应为空
-    anomalies += check_null_rate(adapter, "orders", "order_delivered_customer_date", "order_status", "delivered", null_rate_threshold)
-    # 关键外键不应为空（全表检查，无 status 分层）
-    anomalies += check_null_rate(adapter, "orders", "customer_id", threshold=0.0)
+def run_rule_checks(adapter, null_rate_threshold: float = 0.05, assertions=None) -> list[Anomaly]:
+    """跑全部 L0 规则：声明式断言目录（缺省内置 Olist 默认）+ 内置时间/未来日期检查。
+
+    assertions 非空时整体替换默认目录（用户声明自己的断言）；否则用内置默认（回归不破）。
+    """
+    anomalies = run_catalog_checks(
+        adapter,
+        assertions if assertions is not None else default_assertions(null_rate_threshold),
+    )
     # 时间逻辑：交付早于下单（倒挂）+ 预估送达早于下单（第二时间字段）+ 下单时间超出采集范围（未来日期）
     anomalies += check_time_inversion(adapter, "order_delivered_customer_date", "交付日期早于下单日期")
     anomalies += check_time_inversion(adapter, "order_estimated_delivery_date", "预估送达日期早于下单日期")
@@ -237,15 +231,12 @@ def check_zip_inconsistency(adapter) -> list[Anomaly]:
 
 
 def run_consistency_checks(adapter) -> list[Anomaly]:
-    """L0 跨表/跨字段一致性检查：按 FK/业务语义逐对校验，0 LLM、最可解释。"""
+    """L0 跨表/跨字段一致性检查（公式型，保持硬编码）：金额/状态/邮编。
+
+    孤儿外键（referential）已迁移到声明式断言目录（catalog.default_assertions）。
+    """
     anomalies: list[Anomaly] = []
     anomalies += check_amount_mismatch(adapter)
     anomalies += check_state_conflict(adapter)
     anomalies += check_zip_inconsistency(adapter)
-    # 孤儿外键铺满星型模型 FK 网（§14 #5）
-    anomalies += check_orphan(adapter, "order_items", "products", "product_id", "product_id")
-    anomalies += check_orphan(adapter, "order_items", "sellers", "seller_id", "seller_id")
-    anomalies += check_orphan(adapter, "payments", "orders", "order_id", "order_id")
-    anomalies += check_orphan(adapter, "reviews", "orders", "order_id", "order_id")
-    anomalies += check_orphan(adapter, "orders", "customers", "customer_id", "customer_id")
     return anomalies

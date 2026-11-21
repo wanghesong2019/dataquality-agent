@@ -5,6 +5,7 @@ from dataquality_agent.data.injector import Injector
 from dataquality_agent.detection.catalog import (
     ASSERTION_TYPES, Assertion, build_assertion_detector, default_assertions, load_assertions, run_catalog_checks,
 )
+from dataquality_agent.detection.rules import run_consistency_checks, run_rule_checks
 from dataquality_agent.models import Evidence
 
 
@@ -135,3 +136,13 @@ def test_build_detector_is_detector(mini_warehouse):
     det = build_assertion_detector(default_assertions())
     assert det.name == "assertion_catalog"
     assert "duplicate" in [x.type for x in det.detect(DuckDBAdapter(conn), {})]
+
+
+def test_no_yaml_behavior_unchanged(mini_warehouse):
+    """无目录时，run_rule_checks + run_consistency_checks 与现状一致（含 6 条 orphan）。"""
+    conn = Injector(mini_warehouse).connect()
+    assert run_rule_checks(DuckDBAdapter(conn)) == []          # clean -> no anomalies
+    assert run_consistency_checks(DuckDBAdapter(conn)) == []
+    # products FK orphan now surfaces via run_rule_checks (catalog), not run_consistency_checks
+    conn.execute("DELETE FROM products WHERE product_id = 'p1'")
+    assert "orphan" in [a.type for a in run_rule_checks(DuckDBAdapter(conn))]
