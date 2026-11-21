@@ -37,7 +37,9 @@ class Retriever:
         sparse = [(d["id"], self._bm25(q_tokens, d["tokens"])) for d in self.docs]
         ranked_ids = self._rrf(dense, sparse, k)
         by_id = {d["id"]: d for d in self.docs}
-        return [by_id[i] for i in ranked_ids]
+        # 只回可读字段（id+text）；dense 向量/tokens 是 scoring 内部状态，泄漏会把整包浮点向量
+        # str() 进 prompt、撑爆 token（判断皆有据 ≠ 把向量塞给模型）。
+        return [{"id": by_id[i]["id"], "text": by_id[i]["text"]} for i in ranked_ids]
 
     @staticmethod
     def _cosine(a: list[float], b: list[float]) -> float:

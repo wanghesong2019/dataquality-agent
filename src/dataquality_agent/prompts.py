@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from typing import Callable
 
-from dataquality_agent.models import CriticVerdict, Diagnosis, Remediation
+from dataquality_agent.models import CriticVerdict, Remediation
 
 
 @dataclass
@@ -50,7 +50,17 @@ SUBMIT_REMEDIATION_SCHEMA = {
     "function": {
         "name": "submit_remediation",
         "description": "提交一条数据质量整改方案",
-        "parameters": Remediation.model_json_schema(),
+        # 只让模型输出「它决定的字段」；evidence 由代码侧从根因证据装配（判断皆有据），
+        # 塞进 schema 会让模型复述整包证据、撑爆 completion token。
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action_type": {"type": "string", "description": "修复动作类型：fix_sql(修复SQL) / add_rule(新增质量规则) / ticket(生成工单) / alert(告警通知)"},
+                "sql_or_suggestion": {"type": "string", "description": "修复 SQL 或建议文本"},
+                "risk_level": {"type": "string", "description": "风险等级 low/medium/high；涉及 DELETE/UPDATE 生产表、金额字段、权限变更 → high"},
+            },
+            "required": ["action_type", "sql_or_suggestion"],
+        },
     },
 }
 
@@ -120,7 +130,16 @@ SUBMIT_DIAGNOSIS_SCHEMA = {
     "function": {
         "name": "submit_diagnosis",
         "description": "提交一条异常归因结论",
-        "parameters": Diagnosis.model_json_schema(),
+        # 只让模型输出「它决定的字段」；evidence_chain/evidence/matched_cases 由代码侧从真实证据装配，
+        # 塞进 schema 会让模型复述整包证据、撑爆 completion token（实测 thin 诊断 ~3.3 万 token/call）。
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "root_cause_category": {"type": "string", "description": "根因类别，必须从以下枚举选一：上游任务失败 / 上游数据延迟 / ETL逻辑变更 / schema变更 / 业务真实波动(非异常) / 数据倾斜 / 脏数据注入 / 未知"},
+                "confidence": {"type": "number", "description": "对根因判断的置信度 0~1"},
+            },
+            "required": ["root_cause_category", "confidence"],
+        },
     },
 }
 

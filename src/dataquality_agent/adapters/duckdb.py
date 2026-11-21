@@ -34,8 +34,18 @@ class DuckDBAdapter(WarehouseAdapter):
         return self._conn
 
     def execute(self, sql: str, max_rows: int | None = None) -> list[tuple]:
-        cur = self._ensure().execute(sql)
-        return cur.fetchmany(max_rows) if max_rows is not None else cur.fetchall()
+        conn = self._ensure()
+        try:
+            cur = conn.execute(sql)
+            return cur.fetchmany(max_rows) if max_rows is not None else cur.fetchall()
+        except Exception:
+            # 写语句失败会 abort 当前事务（DuckDB 需 ROLLBACK 才能继续）；回滚兜底，
+            # 别让单条坏 SQL 毒化连接、拖垮后续只读（复检阶段曾因此抛 TransactionException）。
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
 
     def list_tables(self) -> list[str]:
         rows = self._ensure().execute(

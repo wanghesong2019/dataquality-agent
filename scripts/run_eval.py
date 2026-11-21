@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from dataquality_agent.adapters import DuckDBAdapter
-from dataquality_agent.agents.diagnose import make_aggregate_diagnose_node
+from dataquality_agent.agents.diagnose import make_aggregate_diagnose_node, make_thin_diagnose_node
 from dataquality_agent.agents.remediate import make_remediate_node
 from dataquality_agent.agents.specialists import make_cases_agent, make_lineage_agent, make_sql_agent
 from dataquality_agent.agents.supervisor import make_triage_node
@@ -128,9 +128,17 @@ def main() -> None:
     tracer = Tracer()
     adapter = LLMAdapter(DeepSeekClient(temperature=0), tracer=tracer)
     retriever = build_retriever()
-    diagnoses = _supervisor_diagnose(adapter, diagnose_targets, DuckDBAdapter(eval_conn), retriever)
+    if "--thin" in sys.argv:
+        print("[eval] 归因臂：thin agent（确定性取证 + 单次 LLM）")
+        thin = make_thin_diagnose_node(adapter, DuckDBAdapter(eval_conn), Lineage(), retriever)
+        diagnoses = thin({"anomalies": diagnose_targets})["diagnoses"]
+    else:
+        print("[eval] 归因臂：supervisor（分诊 + 3 专职）")
+        diagnoses = _supervisor_diagnose(adapter, diagnose_targets, DuckDBAdapter(eval_conn), retriever)
+    print(f"[token] diagnose done: tokens={adapter.cost_ledger.total_tokens} calls={adapter.cost_ledger.llm_calls}")
     remediations = make_remediate_node(adapter, DuckDBAdapter(eval_conn))(
         {"anomalies": diagnose_targets, "diagnoses": diagnoses})["remediations"]
+    print(f"[token] remediate done: tokens={adapter.cost_ledger.total_tokens} calls={adapter.cost_ledger.llm_calls}")
 
     # 5) 复检（应用 fix_sql → 重跑检测）
     detected_after = remediate_and_recheck(DuckDBAdapter(eval_conn), remediations, current_date, expected_schema)

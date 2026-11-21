@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1] - 2026-11-21
+
+Patch release: fix a token-cost regression in the thin agent and a flaky eval-harness crash.
+
+### Fixed
+
+- **Token blowup in thin-agent attribution** — `Retriever.search` returned internal `dense` embedding vectors alongside cases, and `assemble_evidence` serialized them into every prompt (~70k chars ≈ 32k tokens per diagnose call). `search` now returns only readable `{id, text}`.
+- **Evidence echo in tool schemas** — `submit_diagnosis` / `submit_remediation` schemas were generated from the full Pydantic models, forcing the model to echo code-populated `evidence` / `evidence_chain` / `matched_cases`. Schemas now expose only the fields the model actually decides (`{root_cause_category, confidence}` / `{action_type, sql_or_suggestion, risk_level}`).
+- **Eval flakiness** — a failed `fix_sql` left the DuckDB connection aborted, crashing the re-check phase with `TransactionException`. `DuckDBAdapter.execute` now rolls back on failure.
+
+### Changed
+
+- `run_eval.py` gains a `--thin` flag (thin-agent vs supervisor attribution arm) and prints diagnose/remediate cost checkpoints.
+
+### Measured
+
+On 21 injected anomalies (deepseek-chat, temp 0): thin agent — attribution **1.000**, ~85k tokens, ~107s, 67 calls; supervisor — attribution 0.750, ~228k tokens, ~210s, 141 calls. Cost-normalized attribution favors thin ~3.6×.
+
 ## [0.2.0] - 2026-11-20
 
 Land the design philosophy **"一切皆断言，判断皆有据"** (*everything is an assertion; every judgment is evidence-backed*): evidence becomes a first-class structured object, and attribution is thinned to a single evidence-consuming LLM call.
