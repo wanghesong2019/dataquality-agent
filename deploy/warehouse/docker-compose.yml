@@ -1,0 +1,31 @@
+# 数仓测试环境（对接 dataquality-agent）。
+#
+# 后续会逐步扩展成一个较完善的数仓（更多数据源 / 更多服务），
+# 这里从 Postgres 起步——dataquality-agent 的第一个真实引擎连接器。
+# 镜像走国内加速源 docker.m.daocloud.io（33-server 直连 Docker Hub 不稳）。
+#
+# 用法：
+#   cd deploy/warehouse
+#   docker compose up -d
+#   连接串：postgresql://postgres:postgres@localhost:5432/warehouse
+services:
+  postgres:
+    image: docker.m.daocloud.io/library/postgres:16-alpine
+    container_name: dqa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: warehouse
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d warehouse"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres_data:
