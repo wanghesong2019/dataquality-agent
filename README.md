@@ -17,7 +17,7 @@
 
 An open-source, out-of-the-box **data quality agent** that upgrades traditional rule-and-manual data governance into an **LLM-agent pipeline**: assert → diagnose → remediate → human approval → report.
 
-> **Documentation**: [wanghesong2019.github.io/dataquality-agent](https://wanghesong2019.github.io/dataquality-agent/)
+> **Documentation**: [wanghesong2019.github.io/dataquality-agent](https://wanghesong2019.github.io/dataquality-agent/) · **Roadmap**: [ROADMAP.md](ROADMAP.md)
 
 > **Positioning**: at runtime, it **proposes, never executes** — the agent generates remediation plans, high-risk fixes go through human approval, and plan effectiveness is verified **offline** (apply the plan on a cloned warehouse and re-check to get a remediation success rate). It never mutates your production warehouse directly.
 
