@@ -97,3 +97,61 @@ def mini_warehouse(mini_data):
     settings = Settings(data_dir=str(mini_data), db_path=str(mini_data / "test.duckdb"))
     Warehouse(settings).build()
     return settings
+
+
+@pytest.fixture
+def postgres_warehouse(mini_data):
+    """把 mini Olist ODS 数据载入真实 Postgres，返回 psycopg 连接（无 POSTGRES_DSN 时跳过）。"""
+    import os
+
+    import psycopg
+
+    dsn = os.environ.get("POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("POSTGRES_DSN not set")
+
+    # 类型规则：时间戳列 → TIMESTAMP（check_future_date/check_time_inversion 依赖），数值 → DOUBLE/INTEGER，其余 TEXT
+    tables = {
+        "orders": ("order_id TEXT, customer_id TEXT, order_status TEXT, "
+                   "order_purchase_timestamp TIMESTAMP, order_approved_at TIMESTAMP, "
+                   "order_delivered_carrier_date TIMESTAMP, order_delivered_customer_date TIMESTAMP, "
+                   "order_estimated_delivery_date TIMESTAMP"),
+        "order_items": ("order_id TEXT, order_item_id INTEGER, product_id TEXT, seller_id TEXT, "
+                        "shipping_limit_date TIMESTAMP, price DOUBLE PRECISION, freight_value DOUBLE PRECISION"),
+        "payments": ("order_id TEXT, payment_sequential INTEGER, payment_type TEXT, "
+                     "payment_installments INTEGER, payment_value DOUBLE PRECISION"),
+        "reviews": ("review_id TEXT, order_id TEXT, review_score INTEGER, review_comment_title TEXT, "
+                    "review_comment_message TEXT, review_creation_date TIMESTAMP, review_answer_timestamp TIMESTAMP"),
+        "products": ("product_id TEXT, product_category_name TEXT, product_name_lenght INTEGER, "
+                     "product_description_lenght INTEGER, product_photos_qty INTEGER, "
+                     "product_weight_g DOUBLE PRECISION, product_length_cm DOUBLE PRECISION, "
+                     "product_height_cm DOUBLE PRECISION, product_width_cm DOUBLE PRECISION"),
+        "sellers": "seller_id TEXT, seller_zip_code_prefix TEXT, seller_city TEXT, seller_state TEXT",
+        "customers": "customer_id TEXT, customer_unique_id TEXT, customer_zip_code_prefix TEXT, customer_city TEXT, customer_state TEXT",
+        "geolocation": "geolocation_zip_code_prefix TEXT, geolocation_lat DOUBLE PRECISION, geolocation_lng DOUBLE PRECISION, geolocation_city TEXT, geolocation_state TEXT",
+    }
+    csv_files = {
+        "orders": "olist_orders_dataset.csv",
+        "order_items": "olist_order_items_dataset.csv",
+        "payments": "olist_order_payments_dataset.csv",
+        "reviews": "olist_order_reviews_dataset.csv",
+        "products": "olist_products_dataset.csv",
+        "sellers": "olist_sellers_dataset.csv",
+        "customers": "olist_customers_dataset.csv",
+        "geolocation": "olist_geolocation_dataset.csv",
+    }
+
+    conn = psycopg.connect(dsn)
+    conn.autocommit = True  # DDL/COPY 即时生效，免 commit 样板
+    try:
+        for table, ddl in tables.items():
+            conn.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
+            conn.execute(f"CREATE TABLE {table} ({ddl})")
+            with (mini_data / csv_files[table]).open("rb") as f, conn.cursor() as cur:
+                with cur.copy(f"COPY {table} FROM STDIN WITH (FORMAT csv, HEADER true, NULL '')") as copy:
+                    copy.write(f.read())
+        yield conn
+    finally:
+        for table in tables:
+            conn.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
+        conn.close()
