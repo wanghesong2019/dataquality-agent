@@ -144,3 +144,15 @@ def test_null_rate_threshold_controls_detection(mini_warehouse):
                     "key_cols": ["order_id"], "n": 1}])
     assert "null_rate" in [a.type for a in run_rule_checks(adapter, null_rate_threshold=0.05)]
     assert "null_rate" not in [a.type for a in run_rule_checks(adapter, null_rate_threshold=0.99)]
+
+
+def test_check_null_rate_with_raw_where(mini_warehouse):
+    from dataquality_agent.detection.rules import check_null_rate
+
+    conn = Injector(mini_warehouse).connect()
+    adapter = DuckDBAdapter(conn)
+    # delivered 订单交付日期置空 -> where 口径下 null 率 50% 超阈值
+    conn.execute("UPDATE orders SET order_delivered_customer_date = NULL WHERE order_id = 'o1'")
+    a = check_null_rate(adapter, "orders", "order_delivered_customer_date",
+                        where="order_status = 'delivered'", threshold=0.05)
+    assert a and a[0].type == "null_rate"

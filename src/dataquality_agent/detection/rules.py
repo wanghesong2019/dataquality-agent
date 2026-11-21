@@ -117,10 +117,18 @@ def check_future_date(adapter, max_date: str = "2018-12-31") -> list[Anomaly]:
 
 
 def check_null_rate(adapter, table: str, column: str, status_col: str | None = None,
-                    status_value: str | None = None, threshold: float = 0.05) -> list[Anomaly]:
-    """空值检查——可 status 分层（status_col 给定），也可全表（status_col=None）。"""
-    cond = f"{status_col} = '{status_value}'" if status_col else "1=1"
-    label = f"{status_value} 组" if status_col else "全表"
+                    status_value: str | None = None, threshold: float = 0.05,
+                    where: str | None = None) -> list[Anomaly]:
+    """空值检查——可 status 分层（status_col 给定），也可全表（status_col=None），或原始 where 子句。"""
+    if where is not None:
+        cond = where
+        label = "where 组"
+    elif status_col:
+        cond = f"{status_col} = '{status_value}'"
+        label = f"{status_value} 组"
+    else:
+        cond = "1=1"
+        label = "全表"
     total = adapter.execute(f"SELECT COUNT(*) FROM {table} WHERE {cond}")[0][0]
     null_cnt = adapter.execute(
         f"SELECT COUNT(*) FROM {table} WHERE {cond} AND {column} IS NULL"
