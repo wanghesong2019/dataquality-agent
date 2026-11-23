@@ -33,7 +33,7 @@ flowchart LR
 
 | Seam | What you implement | Example |
 |---|---|---|
-| `WarehouseAdapter` | `connect` / `execute` / `list_tables` / `describe_table` / `row_count` | Point the core at Postgres instead of DuckDB |
+| `WarehouseAdapter` | `execute` / `list_tables` / `describe_table` / `row_count` | Point the core at Postgres instead of DuckDB |
 | `Detector` | `name` + `detect(adapter, ctx) -> list[Anomaly]` | "alert when `orders.gmv` drops 3σ below baseline" |
 | `RemediationPolicy` | how to turn a diagnosis into a fix, and its risk | "a duplicate row → `DELETE` (reversible)" |
 | `CaseStore` / RAG | a store of past incidents to retrieve | "this null-spike looks like last week's upstream job failure" |

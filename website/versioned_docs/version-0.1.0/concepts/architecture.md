@@ -59,7 +59,7 @@ Four stages, each pluggable:
 
 ### Warehouse adapters
 
-The `WarehouseAdapter` protocol (`connect` / `execute` / `list_tables` / `describe_table` / `row_count`) is the **only** way the core reads a warehouse. DuckDB ships as the reference implementation; Postgres and StarRocks are on the connector roadmap. See [Warehouse adapter](/docs/reference/warehouse-adapter).
+The `WarehouseAdapter` protocol (`execute` / `list_tables` / `describe_table` / `row_count`) is the **only** way the core reads a warehouse. DuckDB ships as the reference implementation; Postgres and StarRocks are on the connector roadmap. See [Warehouse adapter](/docs/reference/warehouse-adapter).
 
 ## Four pluggable seams
 

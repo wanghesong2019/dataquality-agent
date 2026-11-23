@@ -70,7 +70,7 @@ The core is the assertion lifecycle described above. Every stage boundary is a p
 
 ### Warehouse adapters
 
-The `WarehouseAdapter` protocol (`connect` / `execute` / `list_tables` / `describe_table` / `row_count`) is the **only** way the core reads a warehouse — and in the philosophy, it is the *evidence interface*: it exposes what it can query and pulls on demand, never dumping metadata into context. DuckDB and Postgres ship with the core; StarRocks is on the connector roadmap. See [Warehouse adapter](/docs/reference/warehouse-adapter).
+The `WarehouseAdapter` protocol (`execute` / `list_tables` / `describe_table` / `row_count`) is the **only** way the core reads a warehouse — and in the philosophy, it is the *evidence interface*: it exposes what it can query and pulls on demand, never dumping metadata into context. DuckDB and Postgres ship with the core; StarRocks is on the connector roadmap. See [Warehouse adapter](/docs/reference/warehouse-adapter).
 
 ## Four pluggable seams
 
