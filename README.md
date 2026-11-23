@@ -44,6 +44,17 @@ Traditional data-quality tools (Great Expectations, Soda, Deequ, Griffin) **dete
 
 **Four pluggable seams**: `WarehouseAdapter` (connect a warehouse) · `Detector` (add a check) · `RemediationPolicy` (teach it how to fix) · `CaseStore/RAG` (domain knowledge).
 
+## Warehouse support
+
+The kernel reads every warehouse through the one `WarehouseAdapter` interface (four read-only primitives: `execute` / `list_tables` / `describe_table` / `row_count`). Adding an engine is a self-contained, high-impact contribution.
+
+| Engine | Adapter | Status |
+|---|---|---|
+| DuckDB | `DuckDBAdapter` (in-core reference) | ✅ Supported |
+| PostgreSQL | `PostgresAdapter` (psycopg3, `[postgres]` extra) | ✅ Supported (v0.3.0) |
+| StarRocks | — | 🚧 Roadmap |
+| ClickHouse · Doris · MySQL · Snowflake · BigQuery · Hive · Spark · Flink | — | 🙋 Help wanted — see [adding an adapter](CONTRIBUTING.md#6-adding-a-warehouse-adapter) |
+
 ## Quickstart
 
 ```bash
@@ -99,6 +110,12 @@ src/dataquality_agent/
 ├── rag/             # retriever, embedder, rerank
 └── cli.py           # dqagent CLI (init/detect/run/eval)
 ```
+
+## Contributors
+
+<a href="https://github.com/wanghesong2019/dataquality-agent/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=wanghesong2019/dataquality-agent" alt="Contributors" />
+</a>
 
 ## License
 
