@@ -111,6 +111,15 @@ src/dataquality_agent/
 └── cli.py           # dqagent CLI (init/detect/run/eval)
 ```
 
+## Contributing
+
+Contributions are welcome — no PR is too small. The two lowest-friction ways in:
+
+- **Add a check** — declare a `unique` / `not_null` / `null_rate` / `value_range` / `referential` assertion in YAML (no Python needed).
+- **Add a warehouse adapter** — implement the four `WarehouseAdapter` primitives for a new engine (see the [support matrix](#warehouse-support) above).
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, tests, and conventions; [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community norms.
+
 ## Contributors
 
 <a href="https://github.com/wanghesong2019/dataquality-agent/graphs/contributors">
