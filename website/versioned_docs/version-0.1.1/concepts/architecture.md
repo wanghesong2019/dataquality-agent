@@ -1,12 +1,12 @@
 ---
 sidebar_position: 1
 title: Architecture
-description: The layered architecture of DataAgent — a thin shell, a pluggable core, and warehouse adapters.
+description: The layered architecture of DQAgent — a thin shell, a pluggable core, and warehouse adapters.
 ---
 
 # Architecture
 
-DataAgent follows the **dbt model**: a pluggable core library with thin platform shell and swappable warehouse connectors. You can `pip install` the core and drive it from Python, or run the bundled CLI and API shell. The kernel never talks to a warehouse directly — every read goes through one interface.
+DQAgent follows the **dbt model**: a pluggable core library with thin platform shell and swappable warehouse connectors. You can `pip install` the core and drive it from Python, or run the bundled CLI and API shell. The kernel never talks to a warehouse directly — every read goes through one interface.
 
 ```mermaid
 %%{init: {"themeVariables": {"fontSize": "14px"}, "flowchart": {"nodeSpacing": 16, "rankSpacing": 20, "padding": 5}}}%%

@@ -45,7 +45,7 @@ export default function Home(): ReactNode {
             Every judgment is evidence-backed.
           </Heading>
           <p className={styles.subtitle}>
-            DataAgent closes the loop that rule-and-manual governance leaves open — it asserts,
+            DQAgent closes the loop that rule-and-manual governance leaves open — it asserts,
             traces root cause with evidence, proposes fixes, and gates high-risk changes behind
             a human. Deterministic where it can be; an LLM only where it must.
           </p>
@@ -83,13 +83,13 @@ export default function Home(): ReactNode {
         </section>
 
         <section className={styles.why}>
-          <Heading as="h2">Why DataAgent</Heading>
+          <Heading as="h2">Why DQAgent</Heading>
           <div className={styles.whyGrid}>
             <div>
               <Heading as="h3">Closes the loop others leave open</Heading>
               <p>
                 Traditional DQ tools — Great Expectations, Soda, Deequ, Griffin — detect but
-                don't attribute root cause or remediate. DataAgent turns "a check failed"
+                don't attribute root cause or remediate. DQAgent turns "a check failed"
                 into "here's why, here's the fix, and here's the approval gate."
               </p>
             </div>
@@ -103,7 +103,7 @@ export default function Home(): ReactNode {
             <div>
               <Heading as="h3">Proposes, never executes</Heading>
               <p>
-                At runtime DataAgent only proposes. High-risk fixes wait for a human, and every
+                At runtime DQAgent only proposes. High-risk fixes wait for a human, and every
                 plan is verified offline against a cloned warehouse.
               </p>
             </div>

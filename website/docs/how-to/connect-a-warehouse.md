@@ -1,7 +1,7 @@
 ---
 sidebar_position: 1
 title: Connect a warehouse
-description: Point DataAgent at your own database through WarehouseAdapter.
+description: Point DQAgent at your own database through WarehouseAdapter.
 ---
 
 # Connect a warehouse

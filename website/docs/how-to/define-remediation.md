@@ -1,7 +1,7 @@
 ---
 sidebar_position: 3
 title: Define remediation
-description: Teach DataAgent how to turn a diagnosis into a fix, and how risky the fix is.
+description: Teach DQAgent how to turn a diagnosis into a fix, and how risky the fix is.
 ---
 
 # Define remediation

@@ -1,12 +1,12 @@
 ---
 sidebar_position: 1
 title: Connect a warehouse
-description: Implement WarehouseAdapter to point DataAgent at your own database.
+description: Implement WarehouseAdapter to point DQAgent at your own database.
 ---
 
 # Connect a warehouse
 
-The core never talks to a database directly — every read goes through the `WarehouseAdapter` protocol. To point DataAgent at your warehouse, implement five methods. DuckDB ships as the reference implementation; the protocol is database-agnostic.
+The core never talks to a database directly — every read goes through the `WarehouseAdapter` protocol. To point DQAgent at your warehouse, implement five methods. DuckDB ships as the reference implementation; the protocol is database-agnostic.
 
 ## The protocol
 

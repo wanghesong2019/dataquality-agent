@@ -1,7 +1,7 @@
 ---
 sidebar_label: Philosophy
 title: Philosophy
-description: The worldview behind DataAgent — everything is an assertion, and every judgment is evidence-backed.
+description: The worldview behind DQAgent — everything is an assertion, and every judgment is evidence-backed.
 ---
 
 # Philosophy
@@ -14,7 +14,7 @@ description: The worldview behind DataAgent — everything is an assertion, and 
 
 Code can be copied; a philosophy cannot. Unix is remembered for "everything is a file", Flink for "everything is a stream", dbt for "engineering analytics". The strongest of these tools is not any single piece of code, but the worldview you can state in one sentence and no one else can replicate.
 
-DataAgent's differentiation is not "one more detection algorithm". Detection is a 30-year-old commodity — Wang & Strong's 15 dimensions, and GE, Soda and Deequ all map to the same batch. Our differentiation is the **agentic loop around detection** (attribute + remediate + approve + evaluate), and for that loop to hold together under engineering scrutiny, one worldview must run through it.
+DQAgent's differentiation is not "one more detection algorithm". Detection is a 30-year-old commodity — Wang & Strong's 15 dimensions, and GE, Soda and Deequ all map to the same batch. Our differentiation is the **agentic loop around detection** (attribute + remediate + approve + evaluate), and for that loop to hold together under engineering scrutiny, one worldview must run through it.
 
 This page is that worldview. It is a **norm** — the basis on which code review rejects changes — not an essay.
 

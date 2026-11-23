@@ -1,12 +1,12 @@
 ---
 sidebar_position: 1
 title: Quickstart
-description: Get DataAgent detecting, attributing, and remediating data issues in five minutes.
+description: Get DQAgent detecting, attributing, and remediating data issues in five minutes.
 ---
 
 # Quickstart
 
-DataAgent is an **agentic data quality** pipeline. It upgrades rule-and-manual governance into a closed loop — *assert → diagnose → remediate → approve → report* — where every judgment carries its evidence. At runtime it **only proposes** — high-risk fixes wait behind a human approval gate, and it never writes to your production warehouse.
+DQAgent is an **agentic data quality** pipeline. It upgrades rule-and-manual governance into a closed loop — *assert → diagnose → remediate → approve → report* — where every judgment carries its evidence. At runtime it **only proposes** — high-risk fixes wait behind a human approval gate, and it never writes to your production warehouse.
 
 This guide gets you from install to a full patrol in five minutes, using the bundled sample warehouse and **no API key**.
 

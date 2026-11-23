@@ -37,7 +37,7 @@ Two gotchas worth knowing:
 
 ## 3. Two databases — don't confuse them
 
-DataAgent uses two databases, and only one is about your data:
+DQAgent uses two databases, and only one is about your data:
 
 | What | Where | Pluggable today? |
 |---|---|---|

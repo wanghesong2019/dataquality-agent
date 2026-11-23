@@ -1,7 +1,7 @@
 ---
 sidebar_position: 1
 title: Changelog
-description: Release notes for DataAgent.
+description: Release notes for DQAgent.
 ---
 
 # Changelog

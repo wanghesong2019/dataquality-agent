@@ -6,7 +6,7 @@ description: Where you define your own logic, and who is allowed to write.
 
 # Extension points & permissions
 
-DataAgent is a framework, not a hardcoded script. Four seams let you define **your** warehouse, **your** checks, **your** fixes, and **your** domain knowledge — and a permission model keeps the agent out of the one place it must never write.
+DQAgent is a framework, not a hardcoded script. Four seams let you define **your** warehouse, **your** checks, **your** fixes, and **your** domain knowledge — and a permission model keeps the agent out of the one place it must never write.
 
 ```mermaid
 %%{init: {"themeVariables": {"fontSize": "14px"}, "flowchart": {"nodeSpacing": 16, "rankSpacing": 20, "padding": 5}}}%%
@@ -19,7 +19,7 @@ flowchart LR
         CS["CaseStore / RAG<br/>inject domain knowledge"]
     end
 
-    You --> Core["DataAgent pipeline<br/>inspect → attribute → remediate"]
+    You --> Core["DQAgent pipeline<br/>inspect → attribute → remediate"]
 
     Core -- "reads (SafeSQL)" --> DW[("production warehouse")]
     Core -- "proposes fixes" --> Gate{"high risk?"}

@@ -15,7 +15,7 @@ def create_app(runtime: PatrolRuntime, static_dir: str | None = None) -> FastAPI
 
     static_dir 不为空时，把该目录（前端 dashboard）静态挂到 /。
     """
-    app = FastAPI(title="DataAgent 数据质量巡检")
+    app = FastAPI(title="DQAgent 数据质量巡检")
 
     @app.post("/patrol")
     def trigger_patrol():

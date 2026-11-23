@@ -1,9 +1,9 @@
 <div align="center">
-  <img src="assets/logo.png" alt="DataAgent" width="110" />
+  <img src="assets/logo.png" alt="DQAgent" width="110" />
 
-  <h1>DataAgent</h1>
+  <h1>DQAgent</h1>
 
-  <p><em>Agentic Data Quality — everything is an assertion; every judgment is evidence-backed</em></p>
+  <p><em>Data Quality Agent — everything is an assertion; every judgment is evidence-backed</em></p>
 
   <p>
     <a href="https://wanghesong2019.github.io/dataquality-agent/"><img alt="Docs" src="https://img.shields.io/badge/docs-online-orange" /></a>

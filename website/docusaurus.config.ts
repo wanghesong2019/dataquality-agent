@@ -3,7 +3,7 @@ import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
-  title: 'DataAgent',
+  title: 'DQAgent',
   tagline: 'Everything is an assertion; every judgment is evidence-backed',
   favicon: 'img/meerkat.png',
 
@@ -64,8 +64,8 @@ const config: Config = {
       respectPrefersColorScheme: true,
     },
     navbar: {
-      title: 'DataAgent',
-      logo: {alt: 'DataAgent', src: 'img/meerkat.png'},
+      title: 'DQAgent',
+      logo: {alt: 'DQAgent', src: 'img/meerkat.png'},
       items: [
         {
           type: 'docSidebar',
@@ -113,7 +113,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} DataAgent contributors. Licensed under Apache 2.0.`,
+      copyright: `Copyright © ${new Date().getFullYear()} DQAgent contributors. Licensed under Apache 2.0.`,
     },
     prism: {
       theme: prismThemes.github,
