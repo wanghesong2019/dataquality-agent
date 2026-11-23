@@ -1,0 +1,78 @@
+name: Warehouse Adapter Request
+description: Propose or claim a new WarehouseAdapter implementation (e.g., ClickHouse, StarRocks, Doris, Snowflake, BigQuery)
+title: "[Adapter]: "
+labels: ["enhancement", "adapter", "help wanted"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping expand **DQAgent**'s warehouse ecosystem!
+        Built-in adapters currently include **`DuckDBAdapter`** (reference implementation) and **`PostgresAdapter`** (`psycopg3`).
+        Every adapter implements lifecycle hooks (`connect()` / `close()`) and **4 read-only primitives** under the **SafeSQL** guardrail.
+
+  - type: input
+    id: engine
+    attributes:
+      label: Target Warehouse / SQL Engine
+      description: Which database or analytical engine should this adapter support?
+      placeholder: "e.g., ClickHouse, StarRocks, Apache Doris, Snowflake, BigQuery, MySQL"
+    validations:
+      required: true
+
+  - type: input
+    id: driver
+    attributes:
+      label: Recommended Python Driver Package
+      description: Which maintained Python client library should be added under `[project.optional-dependencies]` in `pyproject.toml`?
+      placeholder: "e.g., clickhouse-connect>=0.7.0, snowflake-connector-python, pymysql"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: connection_protocol
+    attributes:
+      label: Connection Protocol / Reuse Potential
+      description: Does this engine speak a wire protocol already supported by an existing adapter or standard DB-API 2.0?
+      options:
+        - Standard Python DB-API 2.0 driver
+        - MySQL wire-protocol compatible (e.g., Apache Doris, StarRocks, TiDB)
+        - PostgreSQL wire-protocol compatible (e.g., Redshift, Greenplum, CockroachDB)
+        - HTTP / REST / Arrow Flight client
+        - Other / Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: primitives_notes
+    attributes:
+      label: Implementation Notes for Lifecycle & 4 Primitives
+      description: Outline dialect-specific SQL or driver behavior for each required method in `WarehouseAdapter`.
+      placeholder: |
+        - `connect() / close()`: Connection pooling, auth parameters, read-only session flags
+        - `execute(sql, max_rows=None) -> list[tuple]`: Row limit enforcement & cursor fetching
+        - `list_tables() -> list[str]`: e.g., `SHOW TABLES` or `INFORMATION_SCHEMA.TABLES`
+        - `describe_table(table) -> dict[str, str]`: Column name -> normalized type mapping
+        - `row_count(table) -> int`: Fast count or metadata estimation caveats
+    validations:
+      required: false
+
+  - type: textarea
+    id: dialect_quirks
+    attributes:
+      label: SQL Dialect & SafeSQL Considerations
+      description: Mention any quoting rules (backticks vs. double quotes), `LIMIT` syntax, or read-only quirks.
+      placeholder: "e.g., Identifiers use backticks (`table`), INFORMATION_SCHEMA requires explicit database filter..."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: contribution_intent
+    attributes:
+      label: Contribution Intent
+      description: Are you interested in implementing this adapter?
+      options:
+        - "Yes — I would like to claim this and open a PR"
+        - "Maybe — I can help test against a real instance if someone scaffolds it"
+        - "No — Feature request / +1 only"
+    validations:
+      required: true

@@ -1,0 +1,78 @@
+name: False Positive / False Negative Report
+description: Report an inaccurate alert (false positive) or a missed data anomaly (false negative)
+title: "[Accuracy]: "
+labels: ["bug", "accuracy"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Every judgment in **DQAgent** must be evidence-backed and accurate.
+        Please sanitize any sensitive business values or PII before pasting sample rows or SQL queries.
+
+  - type: dropdown
+    id: accuracy_type
+    attributes:
+      label: Feedback Category
+      options:
+        - "False Positive — Healthy data was flagged as anomalous"
+        - "False Negative — A real data quality issue was missed"
+        - "Root-Cause Attribution Error — Anomaly detected, but diagnosis/SQL evidence was inaccurate"
+    validations:
+      required: true
+
+  - type: input
+    id: triggered_rule
+    attributes:
+      label: Assertion or Detector Name
+      description: Which L0 assertion (`name` / `type`) or Python `Detector` triggered or missed the case?
+      placeholder: "e.g., orders_pk_unique (type: unique) or null_rate_detector"
+    validations:
+      required: true
+
+  - type: input
+    id: target_table_column
+    attributes:
+      label: Target Table & Column(s)
+      placeholder: "e.g., analytics.fact_orders (column: customer_id)"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment Details
+      description: Specify DQAgent version, Python version (>=3.10), and WarehouseAdapter used.
+      placeholder: "e.g., dataquality-agent 0.3.x, Python 3.11, DuckDBAdapter"
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro_sample
+    attributes:
+      label: Reproducible Data Sample & Assertion Config
+      description: Provide a minimal SQL snippet (`CREATE TABLE` / `INSERT`) or sample rows along with the assertion YAML that reproduces the issue.
+      render: sql
+      placeholder: |
+        -- Minimal table & sample rows
+        CREATE TABLE fact_orders (order_id INT, status VARCHAR, discount_code VARCHAR);
+        INSERT INTO fact_orders VALUES (1, 'CANCELLED', NULL), (2, 'CANCELLED', NULL);
+
+        -- Assertion YAML
+        -- name: active_orders_discount_null_rate
+        -- type: null_rate
+        -- table: fact_orders
+        -- column: discount_code
+        -- max_rate: 0.10
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_vs_actual
+    attributes:
+      label: Expected vs. Actual Verdict & Evidence
+      description: What verdict and SQL evidence did DQAgent produce, and what should the expected outcome be?
+      placeholder: |
+        - Actual: Flagged `null_rate = 1.0 > 0.10` because cancelled rows were included.
+        - Expected: Should pass (or scope cleanly) when `where` filter excludes cancelled orders.
+    validations:
+      required: true

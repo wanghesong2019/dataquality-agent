@@ -1,0 +1,70 @@
+name: New Check / Detector Request
+description: Suggest a new data quality assertion rule (YAML L0 preferred) or a custom Python Detector
+title: "[Check]: "
+labels: ["enhancement", "detector"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **DQAgent follows a Deterministic-First hierarchy:** rules before statistics, statistics before LLM.
+        Whenever possible, checks should be expressed as **declarative L0 YAML assertions** (`unique`, `not_null`, `null_rate`, `value_range`, `referential`) rather than custom Python code.
+
+  - type: textarea
+    id: semantics
+    attributes:
+      label: Rule Semantics & Operational Problem
+      description: What data quality anomaly does this check detect, and what warehouse failure mode does it prevent?
+      placeholder: "e.g., Detect unexpected negative revenue after refund joins, or sudden row-count drops compared to a 7-day rolling baseline."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: check_tier
+    attributes:
+      label: Can This Be Expressed as a Declarative L0 Assertion?
+      description: Choose whether the rule fits DQAgent's 5 built-in L0 assertion types or requires custom Python logic.
+      options:
+        - "Yes — Declarative L0 YAML assertion (unique / not_null / null_rate / value_range / referential)"
+        - "No — Requires multi-step SQL, cross-window statistics, or custom Python Detector"
+        - "Not sure — Need maintainer guidance"
+    validations:
+      required: true
+
+  - type: textarea
+    id: yaml_example
+    attributes:
+      label: Declarative L0 YAML Snippet (If Applicable)
+      description: "Supported L0 schema fields: `name`, `type`, `table`, `column`, `columns`, `max_rate`, `where`, `min`, `max`, `child_table`, `child_column`, `parent_table`, `parent_column`, `severity`."
+      render: yaml
+      placeholder: |
+        - name: completed_orders_discount_null_rate
+          type: null_rate
+          table: fact_orders
+          column: discount_code
+          max_rate: 0.10
+          where: "status = 'COMPLETED'"
+          severity: high
+    validations:
+      required: false
+
+  - type: textarea
+    id: python_detector_design
+    attributes:
+      label: Python `Detector` Design (Only If L0 YAML Is Insufficient)
+      description: Describe the `Detector` (`name` + `detect(...) -> list[Anomaly]`), the deterministic SQL queries it runs, and the evidence attached to each `Anomaly`.
+      placeholder: |
+        - Detector `name`: e.g., `rolling_volume_drop`
+        - Detection logic: Compare today's partition row count against 7-day median
+        - Evidence payload: Executed SQL, expected baseline vs. actual count, offending partition key
+    validations:
+      required: false
+
+  - type: dropdown
+    id: contribution_intent
+    attributes:
+      label: Contribution Intent
+      options:
+        - "Yes — I plan to submit a PR (YAML rule or Detector)"
+        - "No — Suggestion only"
+    validations:
+      required: true
