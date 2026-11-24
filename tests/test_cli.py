@@ -47,3 +47,30 @@ def test_detect_passes_assertions_path(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "run_detection", fake)
     assert main(["detect", "--dir", d, "--assertions", str(yaml)]) == 0
     assert captured["assertions_path"] == str(yaml)
+
+
+def test_run_prints_report(monkeypatch, capsys, tmp_path):
+    import dataquality_agent.api.wiring as wiring
+    from dataquality_agent import cli
+
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "olist_orders_dataset.csv").write_text("")
+
+    state = {
+        "anomalies": [], "diagnoses": [], "remediations": [], "approvals": [],
+        "report": {"summary": "patrol complete", "anomaly_count": 0, "remediation_count": 0},
+    }
+
+    class FakeRuntime:
+        def trigger(self):
+            return {"run_id": "abc12345", "status": "completed"}
+        def get(self, run_id):
+            return {"run_id": run_id, "status": "completed", "state": state}
+
+    monkeypatch.setattr(wiring, "build_runtime", lambda settings: FakeRuntime())
+
+    rc = cli._cmd_run(type("Args", (), {"dir": str(tmp_path)})())
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "patrol complete" in out      # report.summary printed
+    assert "run_id=abc12345" in out

@@ -52,11 +52,14 @@ def _cmd_run(args) -> int:
         print(f"Sample data not found ({data_dir}), run first: dqagent init --dir {args.dir}", file=sys.stderr)
         return 1
     from dataquality_agent.api.wiring import build_runtime
+    from dataquality_agent.report_text import format_run_report
 
     settings = Settings(data_dir=str(data_dir), db_path=str(data_dir / "warehouse.duckdb"),
                         checkpoint_path=str(Path(args.dir) / "checkpoints.sqlite"))
     runtime = build_runtime(settings)
     result = runtime.trigger()
+    state = runtime.get(result["run_id"])["state"]
+    print(format_run_report(state))
     print(f"run_id={result['run_id']} status={result['status']}")
     return 0
 
