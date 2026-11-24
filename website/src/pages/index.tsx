@@ -73,6 +73,19 @@ export default function Home(): ReactNode {
       </header>
 
       <main>
+        <section className={styles.demo}>
+          <Heading as="h2">See it in action</Heading>
+          <p className={styles.demoCaption}>
+            On a curated Olist subset (~5k orders) with four injected faults — duplicate,
+            orphan, null-rate, and negative-weight — <code>detect</code> surfaces them in seconds,
+            then <code>run</code> attributes each root cause, proposes fixes, and gates high-risk
+            changes behind approval.
+          </p>
+          <div className={styles.demoFrame}>
+            <img src="/img/demo.gif" alt="DQAgent terminal demo: detect then run" />
+          </div>
+        </section>
+
         <section className={styles.pillars}>
           {PILLARS.map((p) => (
             <div key={p.title} className={styles.pillar}>
