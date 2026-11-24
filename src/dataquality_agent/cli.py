@@ -56,7 +56,9 @@ def _cmd_run(args) -> int:
 
     settings = Settings(data_dir=str(data_dir), db_path=str(data_dir / "warehouse.duckdb"),
                         checkpoint_path=str(Path(args.dir) / "checkpoints.sqlite"))
+    print("Building warehouse + assembling patrol graph...", flush=True)
     runtime = build_runtime(settings)
+    print("Running patrol (detect -> diagnose -> remediate -> approve)...", flush=True)
     result = runtime.trigger()
     state = runtime.get(result["run_id"])["state"]
     print(format_run_report(state))
