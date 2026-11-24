@@ -23,6 +23,14 @@ An open-source, out-of-the-box **data quality agent** that upgrades traditional 
 
 > **Positioning**: at runtime, it **proposes, never executes** — the agent generates remediation plans, high-risk fixes go through human approval, and plan effectiveness is verified **offline** (apply the plan on a cloned warehouse and re-check to get a remediation success rate). It never mutates your production warehouse directly.
 
+## Demo
+
+<p align="center">
+  <img src="assets/demo.gif" alt="DQAgent terminal demo" width="860" />
+</p>
+
+On a curated Olist subset (~5k orders) with four injected faults, `dqagent detect` surfaces the anomalies in seconds; `dqagent run` then attributes each root cause, proposes fixes, and routes high-risk changes through human approval.
+
 ## Why
 
 Traditional data-quality tools (Great Expectations, Soda, Deequ, Griffin) **detect** but don't **attribute root cause or close the remediation loop**. Metadata catalogs (OpenMetadata, DataHub) have lineage and quality checks but no agentic attribution. This project fills that gap: **agentic data quality** — a pluggable framework where every judgment carries its evidence, turning "a check failed" into "here's why, here's the fix, and here's the approval gate".

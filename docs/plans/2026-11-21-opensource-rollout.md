@@ -37,11 +37,11 @@
 
 ### Batch 2 — 展示与双语
 
-**T6 终端动图 GIF**（⏸ 后置，待 ①② 就绪再录）：
+**T6 终端动图 GIF**（✅ 已录，SafeSQL 硬化仍后置）：
 - 前置 ①：`run`/`detect` 面向 stdout 的富报告——归因结论 + 证据（探查 SQL / 命中行 / 预期 vs 实际）+ 修复提案 + 审批状态上屏（当前 `run` 只打印 `run_id/status`，画面撑不起来）。
 - 前置 ②：真实 demo 数据——全量 Olist + 真实故障模式注入（JOIN 膨胀→主键重复、上游断更→孤儿、脏值→null_rate），替代 3 单 mini 样本。
 - 相关硬化：SafeSQL 正则 → sqlglot 真解析（见 ROADMAP 新增项），随 ① 排期。
-- 我落地：33 服务器用 vhs 录制 + 嵌 README。
+- 我落地：33 服务器用 vhs 录制 + 嵌 README（`assets/demo.gif`，脚本 `scripts/demo.tape` + `scripts/make_demo_data.py`）。
 
 **T7 README_CN.md**（Docusaurus zh-Hans 完整本地化后置）。
 - Gemini 产出：README 中文译稿。
