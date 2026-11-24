@@ -1,6 +1,7 @@
 import type {ReactNode} from 'react';
 import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
+import useBaseUrl from '@docusaurus/useBaseUrl';
 import Layout from '@theme/Layout';
 import Heading from '@theme/Heading';
 
@@ -34,6 +35,7 @@ dqagent run --dir ./demo`;
 
 export default function Home(): ReactNode {
   const {siteConfig} = useDocusaurusContext();
+  const demoGif = useBaseUrl('/img/demo.gif');
   return (
     <Layout description="Agentic data quality — everything is an assertion, and every judgment is evidence-backed.">
       <header className={styles.hero}>
@@ -82,7 +84,7 @@ export default function Home(): ReactNode {
             changes behind approval.
           </p>
           <div className={styles.demoFrame}>
-            <img src="/img/demo.gif" alt="DQAgent terminal demo: detect then run" />
+            <img src={demoGif} alt="DQAgent terminal demo: detect then run" />
           </div>
         </section>
 
