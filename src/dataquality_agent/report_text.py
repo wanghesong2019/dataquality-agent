@@ -1,4 +1,16 @@
 """把巡检 state 渲染成人类可读的英文文本报告（stdout 用）。"""
+import datetime as dt
+
+
+def _fmt(value):
+    """把嵌套结构里的 datetime/date 转成干净的 ISO 字符串（供 rows 预览）。"""
+    if isinstance(value, (dt.datetime, dt.date)):
+        return value.isoformat(sep=" ")
+    if isinstance(value, dict):
+        return {k: _fmt(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_fmt(v) for v in value]
+    return value
 
 
 def format_run_report(state: dict) -> str:
@@ -32,7 +44,7 @@ def format_run_report(state: dict) -> str:
             lines.append(f"    actual:   {ev.get('actual') or '—'}")
             rows = ev.get("rows")
             if rows:
-                lines.append(f"    rows: {rows[:3]}")
+                lines.append(f"    rows: {_fmt(rows[:3])}")
 
             if diag:
                 cat = diag.get("root_cause_category") or "unknown"

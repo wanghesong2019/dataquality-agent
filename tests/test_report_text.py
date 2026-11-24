@@ -103,3 +103,18 @@ def test_rows_bounded_preview():
     text = format_run_report(state)
     assert "ROW0" in text
     assert "ROW9" not in text                 # 只预览前几行（第 10 行不出现）
+
+
+def test_datetime_rows_formatted_cleanly():
+    import datetime as dt
+    rows = [{"order_id": "o1", "ts": dt.datetime(2018, 1, 1, 10, 0)}]
+    state = {
+        "anomalies": [_anomaly(evidence={"query": "q", "rows": rows, "expected": "e", "actual": "a"})],
+        "diagnoses": [],
+        "remediations": [],
+        "approvals": [],
+        "report": None,
+    }
+    text = format_run_report(state)
+    assert "datetime.datetime" not in text
+    assert "2018-01-01 10:00:00" in text
