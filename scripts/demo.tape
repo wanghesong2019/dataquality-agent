@@ -13,15 +13,15 @@ Require dqagent
 Set Shell "bash"
 Set FontSize 16
 Set Width 1000
-Set Height 800
+Set Height 900
 Set Padding 40
-Set PlaybackSpeed 1.5
+Set PlaybackSpeed 2.5
 
 Type "dqagent detect --dir demo"
 Enter
-Sleep 4s
+Sleep 10s
 
 Type "dqagent run --dir demo"
 Enter
-Sleep 28s
-Sleep 8s
+Sleep 32s
+Sleep 12s
