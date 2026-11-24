@@ -12,7 +12,7 @@ SUBMIT_FINDINGS_SCHEMA = {
     "type": "function",
     "function": {
         "name": "submit_semantic_findings",
-        "description": "提交这张表发现的语义异常（没有则为空列表）",
+        "description": "Submit the semantic anomalies found for this table (empty list if none)",
         "parameters": {
             "type": "object",
             "properties": {
@@ -36,24 +36,24 @@ SUBMIT_FINDINGS_SCHEMA = {
 # 数据字典：字段含义 + 合法取值域（材料来自 warehouse.py 的字段注释，结构化成 dict 喂给 LLM）
 TABLE_CODECS = {
     "dwd_orders": {
-        "order_id": {"meaning": "订单ID（主键）"},
-        "customer_id": {"meaning": "客户ID"},
-        "order_status": {"meaning": "订单状态",
+        "order_id": {"meaning": "order ID (primary key)"},
+        "customer_id": {"meaning": "customer ID"},
+        "order_status": {"meaning": "order status",
                          "valid": "created/approved/invoiced/processing/shipped/delivered/canceled/unavailable"},
-        "order_purchase_timestamp": {"meaning": "下单时间"},
-        "order_approved_at": {"meaning": "支付批准时间（应 >= 下单时间）"},
-        "order_delivered_carrier_date": {"meaning": "交付承运商时间"},
-        "order_delivered_customer_date": {"meaning": "送达客户时间（delivered 订单必填）"},
-        "order_estimated_delivery_date": {"meaning": "预计送达日期"},
+        "order_purchase_timestamp": {"meaning": "purchase time"},
+        "order_approved_at": {"meaning": "payment approval time (should be >= purchase time)"},
+        "order_delivered_carrier_date": {"meaning": "carrier handoff time"},
+        "order_delivered_customer_date": {"meaning": "delivery time to customer (required for delivered orders)"},
+        "order_estimated_delivery_date": {"meaning": "estimated delivery date"},
     },
     "dwd_order_items": {
-        "order_id": {"meaning": "订单ID（外键 → orders）"},
-        "order_item_id": {"meaning": "订单内序号"},
-        "product_id": {"meaning": "商品ID（外键 → products）"},
-        "seller_id": {"meaning": "卖家ID（外键 → sellers）"},
-        "shipping_limit_date": {"meaning": "卖家最晚发货期限（应 >= 下单时间）"},
-        "price": {"meaning": "价格（应 >= 0）"},
-        "freight_value": {"meaning": "运费（应 >= 0）"},
+        "order_id": {"meaning": "order ID (foreign key → orders)"},
+        "order_item_id": {"meaning": "order item sequence number"},
+        "product_id": {"meaning": "product ID (foreign key → products)"},
+        "seller_id": {"meaning": "seller ID (foreign key → sellers)"},
+        "shipping_limit_date": {"meaning": "seller latest shipping deadline (should be >= purchase time)"},
+        "price": {"meaning": "price (should be >= 0)"},
+        "freight_value": {"meaning": "freight value (should be >= 0)"},
     },
 }
 
@@ -108,13 +108,15 @@ def run_semantic_checks(adapter, model=None) -> list[Anomaly]:
         profile = _column_profile(adapter, table, cols)
         codec = TABLE_CODECS.get(table, {})
         prompt = (
-            "你是数据质量语义审核员。下面是表的「数据字典」（字段含义 + 合法取值域）和「列画像」"
-            "（cardinality/null 率/min-max/示例值），请找出语义异常"
-            "（日期顺序颠倒、枚举值可疑、字段语义与名称/取值域不符、明显逻辑不一致）。"
-            "没有就返回空 findings 列表。\n"
-            f"表：{table}\n数据字典：{codec}\n列画像：{profile}\n"
-            "Fail if：枚举值不在合法取值域内；delivered 订单缺送达日期；"
-            "时间字段顺序颠倒（如送达/批准早于下单）；price/freight_value 为负。"
+            "You are a data quality semantic auditor. Below is the table's data dictionary (field meaning + valid "
+            "value domain) and column profile"
+            "(cardinality/null rate/min-max/exemplars); find semantic anomalies"
+            "(date ordering inverted, suspicious enum values, field semantics inconsistent with name/domain, obvious "
+            "logical inconsistency)."
+            "If none, return an empty findings list.\n"
+            f"Table: {table}\nData dictionary: {codec}\nColumn profile: {profile}\n"
+            "Fail if: enum value outside the valid domain; delivered order missing delivery date;"
+            "time fields inverted (e.g. delivery/approval before purchase); price/freight_value negative."
         )
         resp = model.chat(
             [{"role": "user", "content": prompt}],

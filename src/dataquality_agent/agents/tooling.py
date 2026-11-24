@@ -12,14 +12,14 @@ from dataquality_agent.tools.sql import SafeSQL
 
 def build_schema_tool(adapter) -> Tool:
     """schema 工具：查某张表的列名与类型（DESCRIBE）。"""
-    return Tool(name="schema", description="查某张表的列名与类型（DESCRIBE），写 SQL 前先查 schema 确认列名",
+    return Tool(name="schema", description="Query a table's column names and types (DESCRIBE); check schema to confirm column names before writing SQL",
                 parameters={"type": "object", "properties": {"table": {"type": "string"}}, "required": ["table"]},
                 func=lambda args: str(adapter.describe_table(args["table"])))
 
 
 def build_lineage_tool(lineage) -> Tool:
     """lineage 工具：查某张表的上游血缘。"""
-    return Tool(name="lineage", description="查某张表的上游血缘（它依赖哪些上游表）",
+    return Tool(name="lineage", description="Query a table's upstream lineage (which upstream tables it depends on)",
                 parameters={"type": "object", "properties": {"table": {"type": "string"}}, "required": ["table"]},
                 func=lambda args: str(lineage.upstream(args["table"])))
 
@@ -28,7 +28,7 @@ def build_sql_tool(adapter, sql_whitelist=None) -> Tool:
     """sql 工具：执行只读诊断 SQL（仅 SELECT），护栏走 SafeSQL。"""
     whitelist = sql_whitelist or set(adapter.list_tables())
     safe_sql = SafeSQL(adapter, whitelist)
-    return Tool(name="sql", description="执行只读诊断 SQL（仅 SELECT）",
+    return Tool(name="sql", description="Run a read-only diagnostic SQL (SELECT only)",
                 parameters={"type": "object", "properties": {"sql": {"type": "string"}}, "required": ["sql"]},
                 func=lambda args: str(safe_sql.run(args["sql"])))
 
@@ -48,7 +48,7 @@ def build_cases_tool(retriever, tracer=None) -> Tool:
                 matched_case_ids.append(r["id"])
         return str(results)
 
-    cases_tool = Tool(name="cases", description="在历史案例库检索相似异常案例（返回案例根因+整改）",
+    cases_tool = Tool(name="cases", description="Retrieve similar anomaly cases from the historical case store (returns case root cause + remediation)",
                       parameters={"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
                       func=cases_func)
     cases_tool.matched_case_ids = matched_case_ids

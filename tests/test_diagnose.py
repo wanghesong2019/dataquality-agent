@@ -44,7 +44,7 @@ def test_diagnose_max_steps_fallback():
 
     node = make_diagnose_node(FakeModel(), [_lineage_tool()], max_steps=2)
     result = node({"anomalies": [Anomaly(type="orphan", table="order_items")]})
-    assert result["diagnoses"][0].root_cause_category == "未知"
+    assert result["diagnoses"][0].root_cause_category == "unknown"
 
 
 def test_diagnose_ignores_model_evidence_chain():

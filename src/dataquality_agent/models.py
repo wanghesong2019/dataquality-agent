@@ -50,7 +50,7 @@ class Anomaly(BaseModel):
 class Diagnosis(BaseModel):
     """归因 Agent 的产出：根因 + 置信度 + 证据链。"""
 
-    root_cause_category: str = Field(description="根因类别，必须从以下枚举选一：上游任务失败 / 上游数据延迟 / ETL逻辑变更 / schema变更 / 业务真实波动(非异常) / 数据倾斜 / 脏数据注入 / 未知")
+    root_cause_category: str = Field(description="Root cause category, must be one of: upstream task failure / upstream data delay / ETL logic change / schema change / real business fluctuation (non-anomaly) / data skew / dirty data injection / unknown")
     confidence: float = Field(ge=0, le=1, description="对根因判断的置信度 0~1")
     evidence_chain: list[str] = Field(default_factory=list, description="证据链（调用的工具及结果，防幻觉）")
     evidence: list[Evidence] = Field(default_factory=list, description="支撑根因的结构化证据（一等公民）")

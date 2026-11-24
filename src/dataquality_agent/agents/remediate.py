@@ -95,7 +95,7 @@ def _parse_critic(resp: dict) -> CriticVerdict:
             return CriticVerdict(**args)
         except Exception:
             break
-    return CriticVerdict(passed=False, feedback="评审结论无法解析")
+    return CriticVerdict(passed=False, feedback="unable to parse review verdict")
 
 
 def _extract_tables(sql: str) -> set[str]:
@@ -110,12 +110,12 @@ def _rule_check(candidate: Remediation, whitelist: set[str]) -> list[str]:
         sql = candidate.sql_or_suggestion
         if re.search(r"\b(delete|update|drop|truncate)\b", sql, re.IGNORECASE) and \
                 not re.search(r"\bwhere\b", sql, re.IGNORECASE):
-            failures.append("写操作(DELETE/UPDATE/DROP/TRUNCATE)缺少 WHERE 条件")
+            failures.append("write op (DELETE/UPDATE/DROP/TRUNCATE) missing WHERE clause")
         for t in _extract_tables(sql):
             if t not in whitelist:
-                failures.append(f"SQL 引用了不存在的表 {t}")
+                failures.append(f"SQL references unknown table {t}")
         if re.search(r"\b(delete|update)\b", sql, re.IGNORECASE) and candidate.risk_level != "high":
-            failures.append("含 DELETE/UPDATE 的写操作 risk_level 必须为 high")
+            failures.append("write op with DELETE/UPDATE must have risk_level=high")
     return failures
 
 

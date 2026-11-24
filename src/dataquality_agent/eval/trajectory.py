@@ -105,9 +105,9 @@ def evaluate_trajectory(evidence_chain: list[str]) -> TrajectoryVerdict:
 
     reasons: list[str] = []
     if redundant > 0:
-        reasons.append(f"{redundant} 次冗余重复调用")
+        reasons.append(f"{redundant} redundant repeated calls")
     if schema_before_sql is False:
-        reasons.append("用 sql 前未先查 schema")
+        reasons.append("used sql before checking schema")
     passed = not reasons
 
     return TrajectoryVerdict(

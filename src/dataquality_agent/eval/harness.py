@@ -18,7 +18,7 @@ REVERSIBLE_TYPES = {"duplicate", "value_range"}
 
 def classify_reversibility(anomaly_type: str) -> str:
     """把异常类型分成「可逆」（SQL 可复原）vs「数据丢失」（需上游重跑）。"""
-    return "可逆" if anomaly_type in REVERSIBLE_TYPES else "数据丢失"
+    return "reversible" if anomaly_type in REVERSIBLE_TYPES else "data-loss"
 
 
 def apply_remediation(adapter, remediation) -> bool:
@@ -53,7 +53,7 @@ def remediate_and_recheck(adapter, remediations, current_date=None, expected_sch
 
 def remediation_success_by_reversibility(detected_before, detected_after, injected) -> dict:
     """按「可逆 / 数据丢失」分型算整改成功率（不粉饰数字）。"""
-    groups: dict[str, list] = {"可逆": [], "数据丢失": []}
+    groups: dict[str, list] = {"reversible": [], "data-loss": []}
     for i in injected:
         groups[classify_reversibility(i.type)].append(i)
     result = {}

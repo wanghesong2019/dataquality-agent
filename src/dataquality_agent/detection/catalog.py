@@ -67,7 +67,7 @@ class Assertion:
 def _require(item: dict, key: str, name: str) -> str:
     v = item.get(key)
     if not v:
-        raise ValueError(f"断言 {name} 缺少 {key}")
+        raise ValueError(f"assertion {name} missing {key}")
     return v
 
 
@@ -78,45 +78,45 @@ def load_assertions(path) -> list[Assertion]:
     """
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, dict) or "assertions" not in data:
-        raise ValueError("assertions.yaml 需要顶层 'assertions' 列表")
+        raise ValueError("assertions.yaml needs a top-level 'assertions' list")
     raw = data["assertions"]
     if not isinstance(raw, list):
-        raise ValueError("'assertions' 必须是列表")
+        raise ValueError("'assertions' must be a list")
 
     assertions: list[Assertion] = []
     seen: set[str] = set()
     for item in raw:
         if not isinstance(item, dict):
-            raise ValueError(f"每条断言必须是映射，得到 {item!r}")
+            raise ValueError(f"each assertion must be a mapping, got {item!r}")
         name = item.get("name")
         if not name:
-            raise ValueError("断言缺少 name")
+            raise ValueError("assertion missing name")
         if name in seen:
-            raise ValueError(f"断言 name 重复：{name}")
+            raise ValueError(f"duplicate assertion name: {name}")
         seen.add(name)
 
         typ = item.get("type")
         if typ not in ASSERTION_TYPES:
-            raise ValueError(f"未知断言类型：{typ}（允许：{sorted(ASSERTION_TYPES)}）")
+            raise ValueError(f"unknown assertion type: {typ} (allowed: {sorted(ASSERTION_TYPES)})")
         severity = item.get("severity", "medium")
 
         if typ == "unique":
             cols = item.get("columns")
             if not cols or not isinstance(cols, list):
-                raise ValueError(f"unique 断言 {name} 需要非空 columns 列表")
+                raise ValueError(f"unique assertion {name} needs a non-empty columns list")
             assertions.append(Assertion(name=name, type=typ, table=_require(item, "table", name),
                                         columns=cols, severity=severity))
         elif typ in ("not_null", "null_rate"):
             max_rate = item.get("max_rate")
             if typ == "null_rate" and max_rate is None:
-                raise ValueError(f"null_rate 断言 {name} 需要 max_rate")
+                raise ValueError(f"null_rate assertion {name} needs max_rate")
             assertions.append(Assertion(name=name, type=typ, table=_require(item, "table", name),
                                         column=_require(item, "column", name), max_rate=max_rate,
                                         where=item.get("where"), severity=severity))
         elif typ == "value_range":
             min_v, max_v = item.get("min"), item.get("max")
             if min_v is None and max_v is None:
-                raise ValueError(f"value_range 断言 {name} 需要 min 或 max 至少一个")
+                raise ValueError(f"value_range assertion {name} needs min or max (at least one)")
             assertions.append(Assertion(name=name, type=typ, table=_require(item, "table", name),
                                         column=_require(item, "column", name),
                                         min=min_v, max=max_v, severity=severity))

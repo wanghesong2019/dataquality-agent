@@ -99,7 +99,7 @@ def detect_volume(adapter, threshold: float = 3.0, lookback: int = 7,
                 type="volume", table="daily_metrics", column=metric,
                 evidence=Evidence(query=query,
                                   expected=f"|z| <= {threshold}",
-                                  actual=f"最新日 {metric}={current} 偏离基线（|z| 超 {threshold}）"),
+                                  actual=f"latest day {metric}={current} deviates from baseline (|z| > {threshold})"),
                 metric_value=current, expected_range=f"|z| <= {threshold}",
             ))
     return anomalies
@@ -122,7 +122,7 @@ def _dist_drift(adapter, table: str, cat_col: str, date_col: str,
             type="distribution", table=table, column=cat_col,
             evidence=Evidence(query=query,
                               expected=f"χ² p >= {alpha}",
-                              actual=f"{cat_col} 分布漂移 χ² p={p:.3g} < {alpha}"),
+                              actual=f"{cat_col} distribution drift χ² p={p:.3g} < {alpha}"),
             metric_value=round(p, 6), expected_range=f"χ² p >= {alpha}",
         )]
     return []
@@ -180,10 +180,10 @@ def detect_lineage_break(watermarks: dict[str, str], lineage: Lineage,
             if lag > max_lag_days:
                 anomalies.append(Anomaly(
                     type="lineage_break", table=table, column=upstream,
-                    evidence=Evidence(expected=f"<= {max_lag_days} 天",
-                                      actual=f"{table} 水位线 {wm} 落后上游 {upstream} 的 {up_wm}（滞后 {lag} 天）",
+                    evidence=Evidence(expected=f"<= {max_lag_days} days",
+                                      actual=f"{table} watermark {wm} lags upstream {upstream}'s {up_wm} (lag {lag} days)",
                                       lineage=[upstream]),
-                    metric_value=lag, expected_range=f"<= {max_lag_days} 天",
+                    metric_value=lag, expected_range=f"<= {max_lag_days} days",
                 ))
     return anomalies
 
@@ -197,9 +197,9 @@ def detect_freshness(watermarks: dict[str, str], current_date: str,
             gap = (date.fromisoformat(current_date) - date.fromisoformat(wm)).days
             anomalies.append(Anomaly(
                 type="freshness", table=table,
-                evidence=Evidence(expected=f"<= {max_gap_days} 天",
-                                  actual=f"{table} 水位线 {wm} 落后当前 {current_date}（滞后 {gap} 天）"),
-                metric_value=gap, expected_range=f"<= {max_gap_days} 天",
+                evidence=Evidence(expected=f"<= {max_gap_days} days",
+                                  actual=f"{table} watermark {wm} lags current {current_date} (lag {gap} days)"),
+                metric_value=gap, expected_range=f"<= {max_gap_days} days",
             ))
     return anomalies
 
@@ -212,7 +212,7 @@ def detect_schema_drift(curr_schema: dict, expected_schema: dict) -> list[Anomal
         if changes:
             anomalies.append(Anomaly(
                 type="schema_drift", table=table,
-                evidence=Evidence(expected="schema 与期望快照一致",
+                evidence=Evidence(expected="schema matches expected snapshot",
                                   actual="; ".join(changes)),
             ))
     return anomalies

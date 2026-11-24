@@ -32,7 +32,7 @@ def test_duplicate_evidence_structured(mini_warehouse):
     assert ev.query and ev.query.strip()     # query 非空
     assert ev.rows, "必须抓到命中行样本"      # rows 非空
     assert len(ev.rows) <= 20                # 封顶
-    assert "重复" in anomalies[0].summary    # summary 兼容旧文本
+    assert "duplicate" in anomalies[0].summary    # summary 兼容旧文本
 
 
 def test_all_l0_anomalies_carry_evidence(mini_warehouse):

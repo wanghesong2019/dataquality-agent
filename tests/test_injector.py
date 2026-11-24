@@ -31,7 +31,7 @@ def test_inject_null_rate(mini_warehouse):
                          "status_col": "order_status", "status_value": "delivered", "key_cols": ["order_id"], "n": 1}])
     a = gt.injections[0]
     assert a.type == "null_rate"
-    assert a.root_cause_category == "脏数据注入"
+    assert a.root_cause_category == "dirty data injection"
     nulls = conn.execute(
         "SELECT COUNT(*) FROM orders WHERE order_status = 'delivered' AND order_delivered_customer_date IS NULL"
     ).fetchone()[0]
@@ -45,7 +45,7 @@ def test_inject_value_range(mini_warehouse):
                          "key_cols": ["order_id", "order_item_id"], "n": 1}])
     a = gt.injections[0]
     assert a.type == "value_range"
-    assert a.root_cause_category == "脏数据注入"
+    assert a.root_cause_category == "dirty data injection"
     neg = conn.execute("SELECT COUNT(*) FROM order_items WHERE price < 0").fetchone()[0]
     assert neg >= 1
 
@@ -59,8 +59,8 @@ def test_inject_root_cause_category_alignment(mini_warehouse):
          "parent_pk": "order_id", "child_fk": "order_id", "n": 1},
     ])
     cats = {i.type: i.root_cause_category for i in gt.injections}
-    assert cats["duplicate"] == "脏数据注入"
-    assert cats["orphan"] == "上游任务失败"
+    assert cats["duplicate"] == "dirty data injection"
+    assert cats["orphan"] == "upstream task failure"
 
 
 def test_inject_lineage_break(mini_warehouse):
@@ -70,7 +70,7 @@ def test_inject_lineage_break(mini_warehouse):
     gt = inj.run(conn, [{"type": "lineage_break", "table": "daily_metrics", "date_col": "order_date", "n": 1}])
     a = gt.injections[0]
     assert a.type == "lineage_break"
-    assert a.root_cause_category == "上游数据延迟"
+    assert a.root_cause_category == "upstream data delay"
     after = conn.execute("SELECT MAX(order_date) FROM daily_metrics").fetchone()[0]
     assert after < before  # 删了最近一天 → 下游水位线后退
 
@@ -81,7 +81,7 @@ def test_inject_freshness(mini_warehouse):
     gt = inj.run(conn, [{"type": "freshness", "table": "daily_metrics", "date_col": "order_date", "n": 1}])
     a = gt.injections[0]
     assert a.type == "freshness"
-    assert a.root_cause_category == "上游数据延迟"
+    assert a.root_cause_category == "upstream data delay"
 
 
 def test_inject_schema(mini_warehouse):
@@ -90,7 +90,7 @@ def test_inject_schema(mini_warehouse):
     gt = inj.run(conn, [{"type": "schema_drift", "table": "dwd_orders", "drop_column": "order_approved_at"}])
     a = gt.injections[0]
     assert a.type == "schema_drift"
-    assert a.root_cause_category == "schema变更"
+    assert a.root_cause_category == "schema change"
     cols = [r[0] for r in conn.execute("DESCRIBE dwd_orders").fetchall()]
     assert "order_approved_at" not in cols
 
@@ -104,7 +104,7 @@ def test_inject_orphan_orders_customers(mini_warehouse):
     a = gt.injections[0]
     assert a.type == "orphan"
     assert a.table == "orders"
-    assert a.root_cause_category == "上游任务失败"
+    assert a.root_cause_category == "upstream task failure"
     orphan = conn.execute(
         "SELECT COUNT(*) FROM orders o LEFT JOIN customers c ON o.customer_id = c.customer_id "
         "WHERE c.customer_id IS NULL AND o.customer_id IS NOT NULL"
@@ -120,7 +120,7 @@ def test_inject_time_inversion_second_column(mini_warehouse):
     a = gt.injections[0]
     assert a.type == "time_inversion"
     assert a.column == "order_estimated_delivery_date"
-    assert a.root_cause_category == "ETL逻辑变更"
+    assert a.root_cause_category == "ETL logic change"
     n = conn.execute(
         "SELECT COUNT(*) FROM orders WHERE order_estimated_delivery_date IS NOT NULL "
         "AND order_estimated_delivery_date < order_purchase_timestamp"
@@ -134,7 +134,7 @@ def test_inject_amount_mismatch(mini_warehouse):
     gt = inj.run(conn, [{"type": "amount_mismatch", "n": 1, "delta": 100.0}])
     a = gt.injections[0]
     assert a.type == "amount_mismatch"
-    assert a.root_cause_category == "脏数据注入"
+    assert a.root_cause_category == "dirty data injection"
     n = conn.execute("""
         WITH pay AS (SELECT order_id, SUM(payment_value) paid FROM payments GROUP BY order_id),
              item AS (SELECT order_id, SUM(price + freight_value) amount FROM order_items GROUP BY order_id)
@@ -149,7 +149,7 @@ def test_inject_state_conflict(mini_warehouse):
     gt = inj.run(conn, [{"type": "state_conflict", "n": 1}])
     a = gt.injections[0]
     assert a.type == "state_conflict"
-    assert a.root_cause_category == "脏数据注入"
+    assert a.root_cause_category == "dirty data injection"
     n = conn.execute("""
         SELECT COUNT(*) FROM orders o JOIN reviews r ON o.order_id = r.order_id WHERE o.order_status = 'canceled'
     """).fetchone()[0]
@@ -162,7 +162,7 @@ def test_inject_zip_inconsistency(mini_warehouse):
     gt = inj.run(conn, [{"type": "zip_inconsistency", "n": 1}])
     a = gt.injections[0]
     assert a.type == "zip_inconsistency"
-    assert a.root_cause_category == "脏数据注入"
+    assert a.root_cause_category == "dirty data injection"
     n = conn.execute("""
         SELECT COUNT(*) FROM (
             SELECT geolocation_zip_code_prefix FROM geolocation

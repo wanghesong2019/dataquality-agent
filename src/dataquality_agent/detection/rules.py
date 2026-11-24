@@ -32,7 +32,7 @@ def check_duplicate(adapter, table: str, key_cols: list[str]) -> list[Anomaly]:
         rows = sample_offending(adapter, table, where)
         return [Anomaly(type="duplicate", table=table, column=key,
                         evidence=Evidence(query=f"SELECT * FROM {table} WHERE {where} LIMIT 20",
-                                          rows=rows, expected="无重复键", actual=f"{n} 组重复键"))]
+                                          rows=rows, expected="no duplicate keys", actual=f"{n} duplicate key groups"))]
     return []
 
 
@@ -48,8 +48,8 @@ def check_orphan(adapter, child: str, parent: str, child_fk: str, parent_pk: str
         rows = sample_offending(adapter, child, where)
         return [Anomaly(type="orphan", table=child, column=child_fk,
                         evidence=Evidence(query=f"SELECT * FROM {child} WHERE {where} LIMIT 20",
-                                          rows=rows, expected=f"无孤儿外键（{child}.{child_fk} ∈ {parent}.{parent_pk}）",
-                                          actual=f"{n} 行孤儿外键"))]
+                                          rows=rows, expected=f"no orphan FKs ({child}.{child_fk} ∈ {parent}.{parent_pk})",
+                                          actual=f"{n} orphan rows"))]
     return []
 
 
@@ -60,7 +60,7 @@ def check_negative(adapter, table: str, column: str) -> list[Anomaly]:
         rows = sample_offending(adapter, table, where)
         return [Anomaly(type="value_range", table=table, column=column,
                         evidence=Evidence(query=f"SELECT * FROM {table} WHERE {where} LIMIT 20",
-                                          rows=rows, expected=f"{column} >= 0", actual=f"{n} 行负值"))]
+                                          rows=rows, expected=f"{column} >= 0", actual=f"{n} negative rows"))]
     return []
 
 
@@ -79,13 +79,13 @@ def check_value_range(adapter, table: str, column: str, min_val=None, max_val=No
         rows = sample_offending(adapter, table, where)
         return [Anomaly(type="value_range", table=table, column=column,
                         evidence=Evidence(query=f"SELECT * FROM {table} WHERE {where} LIMIT 20",
-                                          rows=rows, expected=f"值域 [{min_val}, {max_val}]",
-                                          actual=f"{n} 行超出值域 [{min_val}, {max_val}]"))]
+                                          rows=rows, expected=f"value range [{min_val}, {max_val}]",
+                                          actual=f"{n} rows out of range [{min_val}, {max_val}]"))]
     return []
 
 
 def check_time_inversion(adapter, column: str = "order_delivered_customer_date",
-                         label: str = "交付日期早于下单日期") -> list[Anomaly]:
+                         label: str = "delivery date before purchase date") -> list[Anomaly]:
     """时间倒挂：某时间字段早于下单日期（< purchase），逻辑矛盾。"""
     n = adapter.execute(
         f"SELECT COUNT(*) FROM orders WHERE {column} IS NOT NULL "
@@ -97,8 +97,8 @@ def check_time_inversion(adapter, column: str = "order_delivered_customer_date",
         return [Anomaly(type="time_inversion", table="orders",
                         column=column,
                         evidence=Evidence(query=f"SELECT * FROM orders WHERE {where} LIMIT 20",
-                                          rows=rows, expected=f"{label}不成立（{column} >= 下单日期）",
-                                          actual=f"{n} 行{label}"), metric_value=n)]
+                                          rows=rows, expected=f"{label} does not hold ({column} >= purchase date)",
+                                          actual=f"{n} rows {label}"), metric_value=n)]
     return []
 
 
@@ -113,8 +113,8 @@ def check_future_date(adapter, max_date: str = "2018-12-31") -> list[Anomaly]:
         return [Anomaly(type="future_date", table="orders",
                         column="order_purchase_timestamp",
                         evidence=Evidence(query=f"SELECT * FROM orders WHERE {where} LIMIT 20",
-                                          rows=rows, expected=f"下单时间 ≤ {max_date}",
-                                          actual=f"{n} 行下单时间戳超出 {max_date}"), metric_value=n)]
+                                          rows=rows, expected=f"purchase time ≤ {max_date}",
+                                          actual=f"{n} rows with purchase timestamp beyond {max_date}"), metric_value=n)]
     return []
 
 
@@ -124,13 +124,13 @@ def check_null_rate(adapter, table: str, column: str, status_col: str | None = N
     """空值检查——可 status 分层（status_col 给定），也可全表（status_col=None），或原始 where 子句。"""
     if where is not None:
         cond = where
-        label = "where 组"
+        label = "where group"
     elif status_col:
         cond = f"{status_col} = '{status_value}'"
-        label = f"{status_value} 组"
+        label = f"{status_value} group"
     else:
         cond = "1=1"
-        label = "全表"
+        label = "full table"
     total = adapter.execute(f"SELECT COUNT(*) FROM {table} WHERE {cond}")[0][0]
     null_cnt = adapter.execute(
         f"SELECT COUNT(*) FROM {table} WHERE {cond} AND {column} IS NULL"
@@ -142,8 +142,8 @@ def check_null_rate(adapter, table: str, column: str, status_col: str | None = N
         return [Anomaly(
             type="null_rate", table=table, column=column,
             evidence=Evidence(query=f"SELECT * FROM {table} WHERE {where} LIMIT 20",
-                              rows=rows, expected=f"null 率 ≤ {threshold:.0%}",
-                              actual=f"{label} null 率 {rate:.0%} 超过阈值 {threshold:.0%}"),
+                              rows=rows, expected=f"null rate ≤ {threshold:.0%}",
+                              actual=f"{label} null rate {rate:.0%} exceeds threshold {threshold:.0%}"),
             metric_value=round(rate, 4), expected_range=f"<= {threshold:.0%}",
         )]
     return []
@@ -161,8 +161,8 @@ def run_rule_checks(adapter, null_rate_threshold: float = 0.05, assertions=None)
     # 时间逻辑：交付早于下单（倒挂）+ 预估送达早于下单（第二时间字段）+ 下单时间超出采集范围（未来日期）。
     # 同样隔离：非 Olist 数仓（无 orders 表）不能拖垮上面的目录结果。
     for check in (
-        lambda: check_time_inversion(adapter, "order_delivered_customer_date", "交付日期早于下单日期"),
-        lambda: check_time_inversion(adapter, "order_estimated_delivery_date", "预估送达日期早于下单日期"),
+        lambda: check_time_inversion(adapter, "order_delivered_customer_date", "delivery date before purchase date"),
+        lambda: check_time_inversion(adapter, "order_estimated_delivery_date", "estimated delivery date before purchase date"),
         lambda: check_future_date(adapter),
     ):
         try:
@@ -193,8 +193,8 @@ def check_amount_mismatch(adapter, tolerance: float = 0.01) -> list[Anomaly]:
         return [Anomaly(type="amount_mismatch", table="orders",
                         column="payment_total vs item_total", severity="high",
                         evidence=Evidence(query=f"SELECT * FROM orders WHERE {where} LIMIT 20",
-                                          rows=rows, expected=f"偏差 ≤ {tolerance}",
-                                          actual=f"{n} 单支付总额与明细总额不一致（偏差>{tolerance}）"),
+                                          rows=rows, expected=f"deviation ≤ {tolerance}",
+                                          actual=f"{n} orders payment total vs item total mismatch (deviation>{tolerance})"),
                         metric_value=n)]
     return []
 
@@ -212,8 +212,8 @@ def check_state_conflict(adapter) -> list[Anomaly]:
         return [Anomaly(type="state_conflict", table="orders", column="order_status",
                         severity="medium",
                         evidence=Evidence(query=f"SELECT * FROM orders WHERE {where} LIMIT 20",
-                                          rows=rows, expected="已取消订单无评价",
-                                          actual=f"{n} 单已取消却有评价"), metric_value=n)]
+                                          rows=rows, expected="canceled orders have no reviews",
+                                          actual=f"{n} canceled orders have reviews"), metric_value=n)]
     return []
 
 
@@ -232,8 +232,8 @@ def check_zip_inconsistency(adapter) -> list[Anomaly]:
         return [Anomaly(type="zip_inconsistency", table="geolocation",
                         column="geolocation_zip_code_prefix", severity="low",
                         evidence=Evidence(query=f"SELECT * FROM geolocation WHERE {where} LIMIT 20",
-                                          rows=rows, expected="邮编→城市唯一",
-                                          actual=f"{n} 个邮编映射到多个城市"), metric_value=n)]
+                                          rows=rows, expected="zip→city unique",
+                                          actual=f"{n} zip codes map to multiple cities"), metric_value=n)]
     return []
 
 

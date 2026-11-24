@@ -17,11 +17,11 @@ def _inj(type, table, cat):
 
 
 def test_classify_reversibility():
-    assert classify_reversibility("duplicate") == "可逆"
-    assert classify_reversibility("value_range") == "可逆"
-    assert classify_reversibility("orphan") == "数据丢失"
-    assert classify_reversibility("null_rate") == "数据丢失"
-    assert classify_reversibility("lineage_break") == "数据丢失"
+    assert classify_reversibility("duplicate") == "reversible"
+    assert classify_reversibility("value_range") == "reversible"
+    assert classify_reversibility("orphan") == "data-loss"
+    assert classify_reversibility("null_rate") == "data-loss"
+    assert classify_reversibility("lineage_break") == "data-loss"
 
 
 def test_apply_remediation(mini_warehouse):
@@ -69,7 +69,7 @@ def test_remediation_success_by_reversibility():
     detected_before = [Anomaly(type="duplicate", table="orders"), Anomaly(type="orphan", table="order_items")]
     detected_after = []
     result = remediation_success_by_reversibility(detected_before, detected_after, injected)
-    assert result == {"可逆": 1.0, "数据丢失": 1.0}
+    assert result == {"reversible": 1.0, "data-loss": 1.0}
 
 
 def test_run_eval_assembles_report():

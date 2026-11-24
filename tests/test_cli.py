@@ -13,7 +13,7 @@ def test_init_and_detect(tmp_path, capsys):
     # detect 无 key 跑通
     assert main(["detect", "--dir", d]) == 0
     out = capsys.readouterr().out
-    assert "异常" in out
+    assert "anomalies" in out
 
 
 def test_detect_no_data(tmp_path, capsys):

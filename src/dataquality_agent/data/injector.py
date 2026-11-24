@@ -9,20 +9,20 @@ from dataquality_agent.config import Settings
 # ground-truth 的「预期根因类别」→ 与 Diagnosis.root_cause_category 枚举对齐（归因正确率评估的地基）。
 # 口径：注入器模拟的是真实根因造成的「结果」，不是「我们注入了脏数据」这个动作本身，所以能映射回业务语义。
 ROOT_CAUSE_CATEGORY = {
-    "duplicate": "脏数据注入",       # 重复行进入数仓
-    "orphan": "上游任务失败",         # 上游订单被删/未加载 → 上游数据缺失
-    "null_rate": "脏数据注入",        # 关键列被置空
-    "value_range": "脏数据注入",      # 负价格等非法值
-    "lineage_break": "上游数据延迟",  # 下游停更 → 上游数据未及时到达
-    "freshness": "上游数据延迟",      # 数据停更/迟到
-    "schema_drift": "schema变更",     # 列被删/改类型
-    "amount_mismatch": "脏数据注入",    # 支付金额被改偏 → 支付与明细对不上
-    "state_conflict": "脏数据注入",     # 状态与评价矛盾（已取消却有评价）
-    "zip_inconsistency": "脏数据注入",  # 邮编映射到多个城市
-    "time_inversion": "ETL逻辑变更",    # 交付日期早于下单（时间字段处理错误）
-    "future_date": "脏数据注入",        # 时间戳超出数据采集范围（录入错误）
-    "volume": "业务真实波动(非异常)",    # 日订单量突刺可能是真实业务波动
-    "distribution": "数据倾斜",         # 状态分布漂移
+    "duplicate": "dirty data injection",       # 重复行进入数仓
+    "orphan": "upstream task failure",         # 上游订单被删/未加载 → 上游数据缺失
+    "null_rate": "dirty data injection",        # 关键列被置空
+    "value_range": "dirty data injection",      # 负价格等非法值
+    "lineage_break": "upstream data delay",  # 下游停更 → 上游数据未及时到达
+    "freshness": "upstream data delay",      # 数据停更/迟到
+    "schema_drift": "schema change",     # 列被删/改类型
+    "amount_mismatch": "dirty data injection",    # 支付金额被改偏 → 支付与明细对不上
+    "state_conflict": "dirty data injection",     # 状态与评价矛盾（已取消却有评价）
+    "zip_inconsistency": "dirty data injection",  # 邮编映射到多个城市
+    "time_inversion": "ETL logic change",    # 交付日期早于下单（时间字段处理错误）
+    "future_date": "dirty data injection",        # 时间戳超出数据采集范围（录入错误）
+    "volume": "real business fluctuation (non-anomaly)",    # 日订单量突刺可能是真实业务波动
+    "distribution": "data skew",         # 状态分布漂移
 }
 
 
@@ -128,7 +128,7 @@ class Injector:
             type="lineage_break",
             table=table,
             column=date_col,
-            root_cause=f"{table} 下游停更（最近 {n} 天未更新）",
+            root_cause=f"{table} downstream stalled (last {n} days missing)",
             root_cause_category=ROOT_CAUSE_CATEGORY["lineage_break"],
             location=f"recent {n} days deleted from {table}",
         )
@@ -143,7 +143,7 @@ class Injector:
             type="freshness",
             table=table,
             column=date_col,
-            root_cause=f"{table} 数据停更（最近 {n} 天缺失）",
+            root_cause=f"{table} stale (last {n} days missing)",
             root_cause_category=ROOT_CAUSE_CATEGORY["freshness"],
             location=f"recent {n} days deleted from {table}",
         )
@@ -155,7 +155,7 @@ class Injector:
             type="schema_drift",
             table=table,
             column=drop_column,
-            root_cause=f"{table} 缺失列 {drop_column}（schema 变更）",
+            root_cause=f"{table} missing column {drop_column} (schema change)",
             root_cause_category=ROOT_CAUSE_CATEGORY["schema_drift"],
             location=f"column {drop_column} dropped from {table}",
         )

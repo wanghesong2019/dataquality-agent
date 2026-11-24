@@ -135,7 +135,7 @@ def _diagnose_one(anomaly: Anomaly, model, tools: list, max_steps: int) -> Diagn
                 if not evidence_chain:
                     # 没调查就提交 → 拒绝，逼它先调工具收集证据
                     messages.append({"role": "tool", "tool_call_id": call.get("id", ""),
-                                     "content": "你还没调用任何调查工具，禁止提交结论。请先调用 lineage/cases/sql 收集证据。"})
+                                     "content": "You have not called any investigation tool yet; submitting a conclusion is forbidden. Call lineage/cases/sql to collect evidence first."})
                     continue
                 try:
                     # evidence_chain 以「实际工具调用历史」为准：丢弃模型自述的 evidence_chain（否则
@@ -145,14 +145,14 @@ def _diagnose_one(anomaly: Anomaly, model, tools: list, max_steps: int) -> Diagn
                     return Diagnosis(**args, evidence_chain=evidence_chain,
                                      matched_cases=list(_matched_case_ids(tools)))
                 except Exception:
-                    return Diagnosis(root_cause_category="未知", confidence=0.0, evidence_chain=evidence_chain,
+                    return Diagnosis(root_cause_category="unknown", confidence=0.0, evidence_chain=evidence_chain,
                                      matched_cases=list(_matched_case_ids(tools)))
             tool = next((t for t in tools if t.name == name), None)
             result = f"unknown tool: {name}" if tool is None else _run_tool(tool, args, tracer)
             evidence_chain.append(f"{name}({args}) -> {result}")
             messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": result})
     # 超过 max_steps 仍不收敛 → 降级 unknown（防无限循环）
-    return Diagnosis(root_cause_category="未知", confidence=0.0, evidence_chain=evidence_chain,
+    return Diagnosis(root_cause_category="unknown", confidence=0.0, evidence_chain=evidence_chain,
                      matched_cases=list(_matched_case_ids(tools)))
 
 
@@ -188,7 +188,7 @@ def _aggregate_one(anomaly: Anomaly, finding: str, model) -> Diagnosis:
                 return Diagnosis(**args, evidence_chain=evidence)
             except Exception:
                 break
-    return Diagnosis(root_cause_category="未知", confidence=0.0, evidence_chain=evidence)
+    return Diagnosis(root_cause_category="unknown", confidence=0.0, evidence_chain=evidence)
 
 
 def make_aggregate_diagnose_node(model):
@@ -227,15 +227,15 @@ def assemble_evidence(anomaly: Anomaly, adapter, lineage, retriever) -> list[str
     if ev.actual:
         parts.append(f"actual: {ev.actual}")
     if parts:
-        lines.append("异常证据: " + " | ".join(parts))
+        lines.append("anomaly evidence: " + " | ".join(parts))
 
     # 2. 上游血缘
     try:
         ups = lineage.upstream(anomaly.table)
         if ups:
-            lines.append(f"上游血缘({anomaly.table}): {ups}")
+            lines.append(f"upstream lineage({anomaly.table}): {ups}")
     except Exception:
-        lines.append("上游血缘: 不可用")
+        lines.append("upstream lineage: unavailable")
 
     # 3. 表 schema
     try:
@@ -243,16 +243,16 @@ def assemble_evidence(anomaly: Anomaly, adapter, lineage, retriever) -> list[str
         if schema:
             lines.append(f"schema({anomaly.table}): {schema}")
     except Exception:
-        lines.append("schema: 不可用")
+        lines.append("schema: unavailable")
 
     # 4. 相似案例
     try:
         query = f"{anomaly.type} {anomaly.table} {anomaly.column or ''}".strip()
         cases = retriever.search(query, k=3)
         if cases:
-            lines.append("相似案例: " + str(cases[:3]))
+            lines.append("similar cases: " + str(cases[:3]))
     except Exception:
-        lines.append("相似案例: 不可用")
+        lines.append("similar cases: unavailable")
 
     return lines
 
@@ -265,7 +265,7 @@ def _thin_diagnose_one(anomaly: Anomaly, model, adapter, lineage, retriever) -> 
     ev = anomaly.evidence
     # 裸结论（无 query/rows/expected/actual）→ 直接降级「未知」，不浪费 LLM 调用（判断皆有据）
     if not (ev.query or ev.rows or ev.expected or ev.actual):
-        return Diagnosis(root_cause_category="未知", confidence=0.0, evidence=[ev])
+        return Diagnosis(root_cause_category="unknown", confidence=0.0, evidence=[ev])
     evidence = assemble_evidence(anomaly, adapter, lineage, retriever)
     resp = model.chat(
         [{"role": "user", "content": build_aggregate_diagnose_prompt(anomaly, evidence)}],
@@ -282,7 +282,7 @@ def _thin_diagnose_one(anomaly: Anomaly, model, adapter, lineage, retriever) -> 
                 return Diagnosis(**args, evidence_chain=evidence, evidence=[anomaly.evidence])
             except Exception:
                 break
-    return Diagnosis(root_cause_category="未知", confidence=0.0, evidence_chain=evidence,
+    return Diagnosis(root_cause_category="unknown", confidence=0.0, evidence_chain=evidence,
                      evidence=[anomaly.evidence])
 
 

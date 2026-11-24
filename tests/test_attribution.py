@@ -38,7 +38,7 @@ def test_thin_diagnose_degrades_on_empty_evidence(mini_warehouse):
     node = make_thin_diagnose_node(FakeModel(), _adapter(mini_warehouse), Lineage(), build_retriever())
     a = Anomaly(type="weird", table="nope", evidence=Evidence(query="", rows=None))
     out = node({"anomalies": [a]})
-    assert out["diagnoses"][0].root_cause_category == "未知"  # 空证据 → 优雅降级，不崩、不调 LLM
+    assert out["diagnoses"][0].root_cause_category == "unknown"  # 空证据 → 优雅降级，不崩、不调 LLM
 
 
 def test_thin_diagnose_returns_diagnosis_with_evidence(mini_warehouse):

@@ -36,17 +36,17 @@ class JudgeScore(BaseModel):
 
 def build_judge_prompt(anomaly, output, rubric: Rubric, context=None) -> str:
     """把「异常 + 产出 + rubric」拼成打分 prompt。context 可选：如整改对应的根因 Diagnosis。"""
-    dims = "、".join(rubric.dimensions)
+    dims = ", ".join(rubric.dimensions)
     lines = [
-        "你是数据质量评估员。请按 rubric 给以下产出打分（每个维度 1~5 分，5=最好）。",
-        f"rubric：{rubric.description}",
-        f"评分维度：{dims}",
-        f"异常：{anomaly.model_dump()}",
+        "You are a data quality evaluator. Score the following output against the rubric (each dimension 1~5, 5=best).",
+        f"rubric: {rubric.description}",
+        f"dimensions: {dims}",
+        f"anomaly: {anomaly.model_dump()}",
     ]
     if context is not None:
-        lines.append(f"上下文（已归因的根因）：{context.model_dump()}")
-    lines.append(f"产出：{output.model_dump()}")
-    lines.append('输出 JSON，字段必须为：{"<维度名>": <1~5 的整数>, "rationale": "一句话理由"}')
+        lines.append(f"context (attributed root cause): {context.model_dump()}")
+    lines.append(f"output: {output.model_dump()}")
+    lines.append('Output JSON with fields: {"<dimension>": <integer 1~5>, "rationale": "one-sentence reason"}')
     return "\n".join(lines)
 
 
@@ -61,7 +61,7 @@ def _judge_schema(rubric: Rubric) -> dict:
         "type": "function",
         "function": {
             "name": "submit_judge_score",
-            "description": "按 rubric 给一条产出打分",
+            "description": "Score one output against the rubric",
             "parameters": {
                 "type": "object",
                 "properties": {
