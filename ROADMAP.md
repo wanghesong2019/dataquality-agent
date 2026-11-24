@@ -46,6 +46,7 @@ This is a *planning basis*, not a contract. It is anchored to [the philosophy](h
   - **Acceptance — escalation gate**: L2 runs *only* when an assertion's deterministic verifier returns `undecidable` (reason: missing column/table, no baseline snapshot, or a natural-language declaration). The input is an evidence package, the output a structured verdict. "No anomaly found" is a *pass*, never a reason to invoke L2.
   - **Prerequisite**: per-assertion observability — turn the silent `except` in `run_catalog_checks` into an `undecidable(reason=...)` signal (today deferred-minor #5), so the runner can see *which* assertions bailed and escalate exactly those.
 - **v1.0** 🔮 — thin platform shell (`dqagent serve` → dashboard + HITL) as a first-class deployment. *The seams stop being a library and become a service.*
+- **SafeSQL hardening** 🎯 — swap the regex/`startswith("select")` guard for a real SQL parser (`sqlglot`): parse the AST, reject non-`SELECT` / multi-statement at the AST level, extract tables from CTEs / subqueries / schema-qualified names. *Today it's an inline TODO in `remediate.py` ("非真解析器，生产换 sqlglot"). Parsing/validation only — not a dialect-translation layer (guardrail #2 holds).*
 
 ## Why this order
 

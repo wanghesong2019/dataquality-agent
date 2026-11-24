@@ -10,3 +10,6 @@ venv/
 *.duckdb
 /data/
 *.bak*
+
+# 推广文章（不随仓库发布）
+articles/
