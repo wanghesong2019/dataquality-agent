@@ -23,6 +23,7 @@ SUBMIT_FINDINGS_SCHEMA = {
                         "properties": {
                             "column": {"type": "string"},
                             "evidence": {"type": "string"},
+                            "confidence": {"type": "number"},
                         },
                         "required": ["column", "evidence"],
                     },
@@ -116,7 +117,9 @@ def run_semantic_checks(adapter, model=None) -> list[Anomaly]:
             "If none, return an empty findings list.\n"
             f"Table: {table}\nData dictionary: {codec}\nColumn profile: {profile}\n"
             "Fail if: enum value outside the valid domain; delivered order missing delivery date;"
-            "time fields inverted (e.g. delivery/approval before purchase); price/freight_value negative."
+            "time fields inverted (e.g. delivery/approval before purchase); price/freight_value negative. "
+            "Report a confidence (0~1) per finding and keep each finding's evidence to one concise sentence "
+            "with no internal reasoning."
         )
         resp = model.chat(
             [{"role": "user", "content": prompt}],
@@ -124,6 +127,12 @@ def run_semantic_checks(adapter, model=None) -> list[Anomaly]:
             tool_choice={"type": "function", "function": {"name": "submit_semantic_findings"}},
         )
         for f in _parse_findings(resp):
+            try:
+                conf = float(f.get("confidence"))
+            except (TypeError, ValueError):
+                conf = 1.0  # 无 confidence / 非法 → 保留（向后兼容）
+            if conf < 0.7:
+                continue
             anomalies.append(Anomaly(
                 type="semantic", table=table, column=f.get("column"),
                 evidence=f.get("evidence", ""),

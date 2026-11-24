@@ -101,3 +101,15 @@ def test_semantic_bad_json_degrades_to_empty():
             ]}
 
     assert run_semantic_checks(DuckDBAdapter(_conn_with_dwd()), BadModel()) == []
+
+
+def test_semantic_filters_low_confidence():
+    adapter = DuckDBAdapter(_conn_with_dwd())
+    model = _fake_model([
+        {"column": "order_status", "evidence": "low confidence", "confidence": 0.5},
+        {"column": "price", "evidence": "high confidence", "confidence": 0.9},
+    ])
+    anomalies = run_semantic_checks(adapter, model)
+    cols = [a.column for a in anomalies if a.type == "semantic"]
+    assert "price" in cols
+    assert "order_status" not in cols
