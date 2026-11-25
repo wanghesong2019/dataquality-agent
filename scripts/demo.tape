@@ -15,7 +15,7 @@ Set FontSize 16
 Set Width 1000
 Set Height 900
 Set Padding 40
-Set PlaybackSpeed 2.5
+Set PlaybackSpeed 3.0
 
 Type "dqagent detect --dir demo"
 Enter
@@ -23,5 +23,5 @@ Sleep 10s
 
 Type "dqagent run --dir demo"
 Enter
-Sleep 32s
-Sleep 12s
+Sleep 60s
+Sleep 15s
