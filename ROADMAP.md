@@ -42,6 +42,11 @@ This is a *planning basis*, not a contract. It is anchored to [the philosophy](h
 ### Planned (ordered by the philosophy)
 
 - **v0.4.0** 🎯 — declarative **L1** (freshness / volume / distribution / schema / lineage). Requires the historical-baseline-snapshot concept deferred from v0.2. *The "statistics" rung of the L0→L1→L2 ladder.*
+- **Verification against a baseline** 🔮 — a *verify* surface beside `detect`/`run`: prove a table is *correct*, not just that it has no anomalies. Auto-discover a trusted baseline table (`score = lineage-affinity ×0.5 + dimension-overlap ×0.3 + metric-overlap ×0.2`; Top-1 ≥0.7 selects, <0.7 unions several, Top-5 <0.3 degrades), generate template verification SQL against it, and grade `PASS`/`WARNING`/`FAIL` on quantitative thresholds. *Axiom 2: "is this data correct" becomes a graded verdict with evidence. Sourced from Alibaba's verify-data practice.* The deterministic detector backlog this pulls in:
+  - **JOIN fan-out ratio** (L0) — `rows_after / rows_before`; =1.00 pass, 1.00–1.01 warn, >1.01 fail. The single most common review-rejection cause; no detector checks the ratio generically today.
+  - **Date-dimension join integrity** (L0/L1) — format/timezone alignment, T-1 partition present.
+  - **Float tolerance** (`|diff| < 1e-6` counts as 0) — the float-vs-DECIMAL boundary we already hit cleaning demo data.
+  - **Eight code-diff risk signals** (a checklist for the iteration / caliber-migration scenario) — string-compare `'10'>'1'`, NULL/default assumptions, T-0 vs T-1 window, UNION-ALL arm hit-rate 0%/100%, field-caliber vs field-name, EXPLODE/CUBE additivity, float accumulation. The data-detectable half (JOIN fan-out, NULL assumptions, date-window, hit-rate, float) is a detector today; the rest need reading ETL *code*, a new input surface beside `WarehouseAdapter`.
 - **v0.5.0** 🎯 — declarative **L2** semantic assertions + **memory governance** for the case store (provenance + validity period, killing anti-pattern #6 "memory as RAG"). *The "LLM" rung, landing on evidence, plus the reuse-of-evidence seam gets governance.*
   - **Acceptance — escalation gate**: L2 runs *only* when an assertion's deterministic verifier returns `undecidable` (reason: missing column/table, no baseline snapshot, or a natural-language declaration). The input is an evidence package, the output a structured verdict. "No anomaly found" is a *pass*, never a reason to invoke L2.
   - **Prerequisite**: per-assertion observability — turn the silent `except` in `run_catalog_checks` into an `undecidable(reason=...)` signal (today deferred-minor #5), so the runner can see *which* assertions bailed and escalate exactly those.
@@ -64,6 +69,7 @@ These are the [anti-patterns](https://wanghesong2019.github.io/dataquality-agent
 4. No blanket metadata preload — the adapter answers on demand (P3).
 5. No "fix claimed without re-check" — remediation is verified offline on a cloned warehouse.
 6. No memory-as-RAG — a case store must carry provenance and a validity period.
+7. No re-check that re-runs the failing logic — remediation is verified offline against an *independently constructed* logical check, not by re-running the detector that flagged it. Re-deriving with the same JOIN/aggregation proves execution-consistency, not correctness.
 
 ## How this evolves
 
