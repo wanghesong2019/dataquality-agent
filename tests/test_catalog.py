@@ -122,7 +122,7 @@ def test_single_assertion_failure_isolated(mini_warehouse):
 
 def test_default_catalog_covers_generic_l0():
     a = default_assertions()
-    assert len(a) == 17
+    assert len(a) == 22
     assert {x.type for x in a} == {"unique", "not_null", "null_rate", "value_range", "referential"}
     # the delivered-date null_rate assertion takes its threshold from the argument
     nr = next(x for x in a if x.type == "null_rate" and x.where)
@@ -158,3 +158,20 @@ def test_custom_catalog_survives_non_olist_warehouse(tmp_path):
     assertions = [Assertion(name="sales_unique", type="unique", table="sales", columns=["id"])]
     anomalies = run_rule_checks(adapter, assertions=assertions)
     assert [a.type for a in anomalies] == ["duplicate"]
+
+
+def test_dim_assertions_pass_clean(mini_warehouse):
+    """维度表主键唯一断言在干净数仓上不误报（dim 表已去重，Review Focus 1）。"""
+    conn = Injector(mini_warehouse).connect()
+    anomalies = run_catalog_checks(DuckDBAdapter(conn), default_assertions())
+    dim_anomalies = [a for a in anomalies if a.table.startswith("dim_")]
+    assert dim_anomalies == []
+
+
+def test_dim_duplicate_detected(mini_warehouse):
+    """注入 dim_product 主键重复 → unique 断言检出（type=duplicate, table=dim_product）。"""
+    conn = Injector(mini_warehouse).connect()
+    adapter = DuckDBAdapter(conn)
+    conn.execute("INSERT INTO dim_product SELECT * FROM dim_product LIMIT 1")
+    anomalies = run_catalog_checks(adapter, default_assertions())
+    assert any(a.type == "duplicate" and a.table == "dim_product" for a in anomalies)

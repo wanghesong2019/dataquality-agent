@@ -170,6 +170,12 @@ def default_assertions(null_rate_threshold: float = 0.05) -> list[Assertion]:
         Assertion(name="orders_delivered_date_null_rate", type="null_rate", table="orders", column="order_delivered_customer_date",
                   max_rate=null_rate_threshold, where="order_status = 'delivered'"),
         Assertion(name="orders_customer_not_null", type="not_null", table="orders", column="customer_id"),
+        # dim 维度表主键唯一（维度建模不变式：规范维度表 PK 唯一，重复即建模/加载故障）
+        Assertion(name="dim_customer_unique_id", type="unique", table="dim_customer", columns=["customer_id"]),
+        Assertion(name="dim_seller_unique_id", type="unique", table="dim_seller", columns=["seller_id"]),
+        Assertion(name="dim_product_unique_id", type="unique", table="dim_product", columns=["product_id"]),
+        Assertion(name="dim_geolocation_unique_zip", type="unique", table="dim_geolocation", columns=["zip_prefix"]),
+        Assertion(name="dim_category_unique_name", type="unique", table="dim_category", columns=["product_category_name"]),
     ]
 
 
