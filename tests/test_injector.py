@@ -170,3 +170,17 @@ def test_inject_zip_inconsistency(mini_warehouse):
         )
     """).fetchone()[0]
     assert n >= 1
+
+
+def test_inject_join_fanout(mini_warehouse):
+    """JOIN 膨胀注入：复制维度表主键行。ground-truth 的 type 对齐检测的 duplicate。"""
+    inj = Injector(mini_warehouse)
+    conn = inj.connect()
+    gt = inj.run(conn, [{"type": "join_fanout", "table": "sellers", "key_cols": ["seller_id"], "n": 1}])
+    a = gt.injections[0]
+    assert a.type == "duplicate"  # 检测对齐键是 duplicate（维度主键重复是 JOIN 膨胀的根因）
+    assert a.root_cause_category == "dirty data injection"
+    dup = conn.execute(
+        "SELECT COUNT(*) FROM (SELECT seller_id FROM sellers GROUP BY seller_id HAVING COUNT(*) > 1)"
+    ).fetchone()[0]
+    assert dup > 0

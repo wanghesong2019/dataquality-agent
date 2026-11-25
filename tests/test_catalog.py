@@ -122,7 +122,7 @@ def test_single_assertion_failure_isolated(mini_warehouse):
 
 def test_default_catalog_covers_generic_l0():
     a = default_assertions()
-    assert len(a) == 22
+    assert len(a) == 25
     assert {x.type for x in a} == {"unique", "not_null", "null_rate", "value_range", "referential"}
     # the delivered-date null_rate assertion takes its threshold from the argument
     nr = next(x for x in a if x.type == "null_rate" and x.where)
@@ -175,3 +175,12 @@ def test_dim_duplicate_detected(mini_warehouse):
     conn.execute("INSERT INTO dim_product SELECT * FROM dim_product LIMIT 1")
     anomalies = run_catalog_checks(adapter, default_assertions())
     assert any(a.type == "duplicate" and a.table == "dim_product" for a in anomalies)
+
+
+def test_join_fanout_detected(mini_warehouse):
+    """JOIN 膨胀的根因 = 维度表主键重复；重复 sellers.seller_id → unique 断言检出（type=duplicate）。"""
+    conn = Injector(mini_warehouse).connect()
+    adapter = DuckDBAdapter(conn)
+    conn.execute("INSERT INTO sellers SELECT * FROM sellers LIMIT 1")
+    anomalies = run_catalog_checks(adapter, default_assertions())
+    assert any(a.type == "duplicate" and a.table == "sellers" for a in anomalies)

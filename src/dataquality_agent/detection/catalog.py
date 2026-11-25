@@ -176,6 +176,10 @@ def default_assertions(null_rate_threshold: float = 0.05) -> list[Assertion]:
         Assertion(name="dim_product_unique_id", type="unique", table="dim_product", columns=["product_id"]),
         Assertion(name="dim_geolocation_unique_zip", type="unique", table="dim_geolocation", columns=["zip_prefix"]),
         Assertion(name="dim_category_unique_name", type="unique", table="dim_category", columns=["product_category_name"]),
+        # ODS 维度表主键唯一（JOIN 膨胀的根因：维度表主键重复会让事实×维度 JOIN 行数翻倍）
+        Assertion(name="sellers_unique_id", type="unique", table="sellers", columns=["seller_id"]),
+        Assertion(name="products_unique_id", type="unique", table="products", columns=["product_id"]),
+        Assertion(name="customers_unique_id", type="unique", table="customers", columns=["customer_id"]),
     ]
 
 

@@ -66,6 +66,22 @@ class Injector:
             location=f"{n} rows duplicated in {table}",
         )
 
+    def inject_join_fanout(self, conn, table: str, key_cols: list[str], n: int = 1) -> InjectedAnomaly:
+        """复制维度表主键行，制造 JOIN 膨胀的根因（维度表主键重复 → 事实×维度 JOIN 行数翻倍）。
+
+        ground-truth 的 type 对齐检测的 duplicate——检测层用 unique 断言抓「主键重复」这个根因，
+        不直接测「膨胀率」（膨胀率检测是 ROADMAP 后置项，见 ROADMAP.md「JOIN fan-out ratio」）。
+        """
+        conn.execute(f"INSERT INTO {table} SELECT * FROM {table} LIMIT {n}")
+        return InjectedAnomaly(
+            type="duplicate",
+            table=table,
+            column=",".join(key_cols),
+            root_cause=f"{table} dimension key duplicated (JOIN fan-out root cause)",
+            root_cause_category=ROOT_CAUSE_CATEGORY["duplicate"],
+            location=f"{n} rows duplicated in dimension {table}",
+        )
+
     def inject_orphan(self, conn, child_table: str, parent_table: str,
                       parent_pk: str, child_fk: str, n: int = 1) -> InjectedAnomaly:
         """删除父表前 n 行，制造子表外键悬空（孤儿记录）。"""
@@ -282,6 +298,10 @@ class Injector:
             if t == "duplicate":
                 gt.injections.append(
                     self.inject_duplicate(conn, spec["table"], spec["key_cols"], spec.get("n", 1))
+                )
+            elif t == "join_fanout":
+                gt.injections.append(
+                    self.inject_join_fanout(conn, spec["table"], spec["key_cols"], spec.get("n", 1))
                 )
             elif t == "orphan":
                 gt.injections.append(
