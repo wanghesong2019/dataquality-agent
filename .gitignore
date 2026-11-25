@@ -11,5 +11,11 @@ venv/
 /data/
 *.bak*
 
+# 数据文件不入库（数仓代码入库，原始/生成数据不进 git）
+*.csv
+*.csv.gz
+*.parquet
+demo/
+
 # 推广文章（不随仓库发布）
 articles/
