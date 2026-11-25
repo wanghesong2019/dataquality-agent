@@ -164,6 +164,60 @@ class Warehouse:
                 ORDER BY date_key
             """)
 
+        # 2.7) DIM 其余维度表：从 DWD 维度原料抽取，规范命名 + 显式主键 + 去重（事实表关联这些维度）。
+        # customer/seller/product 原始已主键唯一，DISTINCT 兜底；geolocation 按邮编去重取众数城市。
+        if "customers" in built:
+            conn.execute("""
+                CREATE OR REPLACE TABLE dim_customer AS
+                SELECT DISTINCT customer_id, customer_unique_id, customer_zip_code_prefix,
+                       customer_city, customer_state
+                FROM dwd_customers
+            """)
+        if "sellers" in built:
+            conn.execute("""
+                CREATE OR REPLACE TABLE dim_seller AS
+                SELECT DISTINCT seller_id, seller_zip_code_prefix, seller_city, seller_state
+                FROM dwd_sellers
+            """)
+        if "products" in built:
+            conn.execute("""
+                CREATE OR REPLACE TABLE dim_product AS
+                SELECT DISTINCT product_id, product_category_name,
+                       product_name_lenght, product_description_lenght, product_photos_qty,
+                       product_weight_g, product_length_cm, product_height_cm, product_width_cm
+                FROM dwd_products
+            """)
+        if "geolocation" in built:
+            conn.execute("""
+                CREATE OR REPLACE TABLE dim_geolocation AS
+                WITH city_freq AS (
+                    SELECT geolocation_zip_code_prefix, geolocation_city,
+                           COUNT(*) AS cnt,
+                           MAX(geolocation_lat) AS geolocation_lat,
+                           MAX(geolocation_lng) AS geolocation_lng,
+                           MAX(geolocation_state) AS geolocation_state
+                    FROM dwd_geolocation
+                    GROUP BY geolocation_zip_code_prefix, geolocation_city
+                ),
+                ranked AS (
+                    SELECT *,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY geolocation_zip_code_prefix ORDER BY cnt DESC
+                           ) AS rn
+                    FROM city_freq
+                )
+                SELECT geolocation_zip_code_prefix AS zip_prefix,
+                       geolocation_city, geolocation_state, geolocation_lat, geolocation_lng
+                FROM ranked
+                WHERE rn = 1
+            """)
+        if "product_category_translation" in built:
+            conn.execute("""
+                CREATE OR REPLACE TABLE dim_category AS
+                SELECT DISTINCT product_category_name, product_category_name_english
+                FROM product_category_translation
+            """)
+
         # 3) DWS：聚合指标表（L1 volume/distribution 的多基线：daily_metrics 供 volume，dwd_orders/dwd_reviews 供 distribution）
         if {"orders", "order_items"} <= built:
             conn.execute("""

@@ -110,3 +110,48 @@ def test_dim_date_columns_typed(mini_data):
     assert conn.execute("SELECT typeof(date_key) FROM dim_date LIMIT 1").fetchone()[0] == "DATE"
     assert conn.execute("SELECT typeof(year) FROM dim_date LIMIT 1").fetchone()[0] == "INTEGER"
     assert conn.execute("SELECT typeof(month) FROM dim_date LIMIT 1").fetchone()[0] == "INTEGER"
+
+
+def test_dim_tables_unique_pk(mini_data):
+    """五张维度表各自主键唯一（customer/seller/product/geolocation/category）。"""
+    s = Settings(data_dir=str(mini_data), db_path=str(mini_data / "test.duckdb"))
+    w = Warehouse(s)
+    w.build()
+    conn = w.connect()
+    for table, pk in [
+        ("dim_customer", "customer_id"),
+        ("dim_seller", "seller_id"),
+        ("dim_product", "product_id"),
+        ("dim_geolocation", "zip_prefix"),
+        ("dim_category", "product_category_name"),
+    ]:
+        total = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        distinct = conn.execute(f"SELECT COUNT(DISTINCT {pk}) FROM {table}").fetchone()[0]
+        assert total > 0, f"{table} is empty"
+        assert total == distinct, f"{table} has duplicate {pk}"
+
+
+def test_dim_geolocation_dedupes_to_one_row_per_zip(mini_data):
+    """dim_geolocation 一邮编一行，且取众数城市（同邮编多城市时按出现次数取最多的）。"""
+    import pandas as pd
+
+    geo_path = mini_data / "olist_geolocation_dataset.csv"
+    geo = pd.read_csv(geo_path)
+    # 给 01001 再补两行：sao paulo（第二行）+ campinas → 01001 共 sao paulo×2 / campinas×1，众数 = sao paulo
+    extra = pd.DataFrame({
+        "geolocation_zip_code_prefix": ["01001", "01001"],
+        "geolocation_lat": [-23.5, -22.9],
+        "geolocation_lng": [-46.6, -47.0],
+        "geolocation_city": ["sao paulo", "campinas"],
+        "geolocation_state": ["SP", "SP"],
+    })
+    pd.concat([geo, extra], ignore_index=True).to_csv(geo_path, index=False)
+
+    s = Settings(data_dir=str(mini_data), db_path=str(mini_data / "test.duckdb"))
+    w = Warehouse(s)
+    w.build()
+    conn = w.connect()
+    assert conn.execute("SELECT COUNT(*) FROM dim_geolocation").fetchone()[0] == \
+           conn.execute("SELECT COUNT(DISTINCT zip_prefix) FROM dim_geolocation").fetchone()[0]
+    city = conn.execute("SELECT geolocation_city FROM dim_geolocation WHERE zip_prefix = '01001'").fetchone()[0]
+    assert city == "sao paulo"

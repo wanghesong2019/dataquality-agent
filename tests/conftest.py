@@ -88,6 +88,13 @@ def mini_data(tmp_path):
         ("olist_geolocation_dataset", geolocation),
     ]:
         df.to_csv(tmp_path / f"{name}.csv", index=False)
+
+    # 品类名英译表（dim_category 的原料，mini 样例补上以覆盖维度层）
+    translation = pd.DataFrame({
+        "product_category_name": ["moveis_decoracao", "utilidades_domesticas"],
+        "product_category_name_english": ["furniture_decor", "housewares"],
+    })
+    translation.to_csv(tmp_path / "product_category_name_translation.csv", index=False)
     return tmp_path
 
 
