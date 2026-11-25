@@ -1,4 +1,4 @@
-[English](README.md) · **简体中文**
+<div align="center"><a href="README.md"><img alt="English" src="https://img.shields.io/badge/English-blue" /></a> <a href="README_CN.md"><img alt="简体中文" src="https://img.shields.io/badge/简体中文-red" /></a></div>
 
 <div align="center">
   <img src="assets/logo.png" alt="DQAgent" width="110" />
@@ -22,6 +22,14 @@
 > **文档**: [wanghesong2019.github.io/dataquality-agent](https://wanghesong2019.github.io/dataquality-agent/) · **路线图**: [ROADMAP.md](ROADMAP.md)
 
 > **定位**：运行时**只提案、不执行**——Agent 生成整改方案，高危修复需经人工审批，方案有效性在**离线**验证（在克隆数仓上应用方案并复检，得到整改成功率）。它从不直接改动你的生产数仓。
+
+## 演示
+
+<p align="center">
+  <img src="assets/demo.gif" alt="DQAgent 终端演示" width="860" />
+</p>
+
+在一个策展的 Olist 子集（约 5k 订单）上注入了四类故障，`dqagent detect` 秒级暴露异常；`dqagent run` 再对每条异常做根因归因、提案修复，并把高危改动送入人工审批。
 
 ## 为什么做这个
 

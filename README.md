@@ -1,4 +1,4 @@
-**English** · [简体中文](README_CN.md)
+<div align="center"><a href="README.md"><img alt="English" src="https://img.shields.io/badge/English-blue" /></a> <a href="README_CN.md"><img alt="简体中文" src="https://img.shields.io/badge/简体中文-red" /></a></div>
 
 <div align="center">
   <img src="assets/logo.png" alt="DQAgent" width="110" />
