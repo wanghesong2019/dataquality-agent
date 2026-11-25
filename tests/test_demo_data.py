@@ -171,7 +171,13 @@ def test_inject_value_range_negative_weight():
     assert (out["product_weight_g"].astype(float) < 0).sum() == 2
 
 
-def test_inject_faults_applies_all_four():
+def test_inject_join_fanout_duplicates_sellers():
+    sellers = _mini_olist()["sellers"]
+    out = demo.inject_join_fanout(sellers, n=2)
+    assert (out.groupby("seller_id").size() > 1).sum() == 2  # 前 2 个卖家各复制一次
+
+
+def test_inject_faults_applies_all_five():
     tables = demo.inject_faults(_mini_olist(), seed=0)
     orders = tables["orders"]
     # duplicate 生效
@@ -181,3 +187,5 @@ def test_inject_faults_applies_all_four():
     assert delivered["order_delivered_customer_date"].isna().any()
     # orphan 生效：mini fixture 只有 5 个 product，n=20 全删光 → 无剩余可改重量
     assert len(tables["products"]) == 0
+    # join_fanout 生效：卖家主键重复（维度表重复 → JOIN 膨胀根因）
+    assert (tables["sellers"].groupby("seller_id").size() > 1).sum() == 2

@@ -1,12 +1,13 @@
 """策展 demo 数据集：全量 Olist → 真实子集 + 注入故障（供录屏 / 本地演示）。
 
 从全量 Olist 采一个真实、referential 一致的子集，清掉全量数据自带的 always-on
-脏数据（金额对不上 / 取消单有评价 / 邮编多城市），再注入 4 类真实故障模式：
+脏数据（金额对不上 / 取消单有评价 / 邮编多城市），再注入 5 类真实故障模式：
 
-  - JOIN 膨胀 → 主键重复（duplicate）
-  - 上游断更 → 孤儿（orphan）
-  - 脏值 → 关键列置空（null_rate）
-  - 脏值 → 负重量（value_range）
+  - 主键重复（duplicate，orders）
+  - JOIN 膨胀 → 维度表主键重复（join_fanout，sellers）
+  - 上游断更 → 孤儿（orphan，products）
+  - 脏值 → 关键列置空（null_rate，orders）
+  - 脏值 → 负重量（value_range，products）
 
 产出目录结构与 data.sample.write_sample_data 一致（8 表 + translation CSV），
 可直接 `dqagent detect --dir <out>` / `dqagent run --dir <out>`。
@@ -160,21 +161,32 @@ def inject_value_range(products: pd.DataFrame, n: int = 3, bad_value: float = -5
     return products
 
 
+def inject_join_fanout(sellers: pd.DataFrame, n: int = 2) -> pd.DataFrame:
+    """复制前 n 个卖家 → 维度表主键重复（JOIN 膨胀的根因）。
+
+    检测层 sellers_unique_id 断言抓「主键重复」这个根因；膨胀率检测本身是 ROADMAP 后置项。
+    不碰 order_items 的 seller_id 外键：只让维度表 sellers 出现重复，不产生孤儿。
+    """
+    return pd.concat([sellers, sellers.head(n)], ignore_index=True)
+
+
 def inject_faults(tables: dict[str, pd.DataFrame], seed: int = 0) -> dict[str, pd.DataFrame]:
-    """注入 4 类真实故障模式，返回注入后的表。
+    """注入 5 类真实故障模式，返回注入后的表。
 
     duplicate 与 null_rate 都作用在 orders，按顺序叠加（先复制、再置空），不能互相覆盖。
     orphan 与 value_range 都作用在 products，按顺序叠加（先删 20 个、再改剩余前 3 个重量），
-    保证删的和改的不是同一批商品。
+    保证删的和改的不是同一批商品。join_fanout 作用在 sellers（维度表主键重复）。
     """
     orders = inject_duplicate(tables["orders"], n=3)
     orders = inject_null_rate(orders, frac=0.10, seed=seed)
     products = inject_orphan(tables["products"], n=20)
     products = inject_value_range(products, n=3)
+    sellers = inject_join_fanout(tables["sellers"], n=2)
     return {
         **tables,
         "orders": orders,
         "products": products,
+        "sellers": sellers,
     }
 
 
