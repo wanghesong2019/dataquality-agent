@@ -136,7 +136,7 @@ def test_dim_geolocation_dedupes_to_one_row_per_zip(mini_data):
     import pandas as pd
 
     geo_path = mini_data / "olist_geolocation_dataset.csv"
-    geo = pd.read_csv(geo_path)
+    geo = pd.read_csv(geo_path, dtype={"geolocation_zip_code_prefix": str})  # 强制字符串，防前导零被吃成 int
     # 给 01001 再补两行：sao paulo（第二行）+ campinas → 01001 共 sao paulo×2 / campinas×1，众数 = sao paulo
     extra = pd.DataFrame({
         "geolocation_zip_code_prefix": ["01001", "01001"],
@@ -155,3 +155,41 @@ def test_dim_geolocation_dedupes_to_one_row_per_zip(mini_data):
            conn.execute("SELECT COUNT(DISTINCT zip_prefix) FROM dim_geolocation").fetchone()[0]
     city = conn.execute("SELECT geolocation_city FROM dim_geolocation WHERE zip_prefix = '01001'").fetchone()[0]
     assert city == "sao paulo"
+
+
+def test_order_wide_no_fanout(mini_data):
+    """ads_order_wide 一行一 order_item（JOIN 维度表不膨胀），且带品类/卖家城市/客户城市维度列。"""
+    s = Settings(data_dir=str(mini_data), db_path=str(mini_data / "test.duckdb"))
+    w = Warehouse(s)
+    w.build()
+    conn = w.connect()
+    items = conn.execute("SELECT COUNT(*) FROM dwd_order_items").fetchone()[0]
+    assert conn.execute("SELECT COUNT(*) FROM ads_order_wide").fetchone()[0] == items
+    cols = {r[0] for r in conn.execute("DESCRIBE ads_order_wide").fetchall()}
+    assert {"product_category_name", "seller_city", "customer_city"} <= cols
+
+
+def test_gmv_daily_board_matches_daily_metrics(mini_data):
+    """ads_gmv_daily_board 的 gmv/orders 与 daily_metrics 一致，并带上 dim_date 的年月。"""
+    s = Settings(data_dir=str(mini_data), db_path=str(mini_data / "test.duckdb"))
+    w = Warehouse(s)
+    w.build()
+    conn = w.connect()
+    m = conn.execute("SELECT orders, gmv FROM daily_metrics WHERE order_date = DATE '2018-01-01'").fetchone()
+    b = conn.execute(
+        "SELECT orders, gmv, year, month FROM ads_gmv_daily_board WHERE date_key = DATE '2018-01-01'"
+    ).fetchone()
+    assert (b[0], b[1]) == (m[0], m[1])
+    assert (b[2], b[3]) == (2018, 1)
+
+
+def test_seller_daily_cube_aggregates(mini_data):
+    """ads_seller_daily_cube 按 seller × date 聚合，gmv/orders 与 seller_metrics 一致。"""
+    s = Settings(data_dir=str(mini_data), db_path=str(mini_data / "test.duckdb"))
+    w = Warehouse(s)
+    w.build()
+    conn = w.connect()
+    row = conn.execute(
+        "SELECT orders, gmv FROM ads_seller_daily_cube WHERE seller_id = 's1' AND date_key = DATE '2018-01-01'"
+    ).fetchone()
+    assert row == (2, 15.0)

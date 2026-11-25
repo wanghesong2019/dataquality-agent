@@ -202,7 +202,8 @@ class Warehouse:
                 ranked AS (
                     SELECT *,
                            ROW_NUMBER() OVER (
-                               PARTITION BY geolocation_zip_code_prefix ORDER BY cnt DESC
+                               PARTITION BY geolocation_zip_code_prefix
+                               ORDER BY cnt DESC, geolocation_city ASC  -- 同频平局按城市名字典序，保证确定性
                            ) AS rn
                     FROM city_freq
                 )
@@ -270,6 +271,47 @@ class Warehouse:
                     AVG(payment_installments) AS avg_installments  -- 平均分期期数
                 FROM dwd_payments
                 GROUP BY payment_type
+            """)
+
+        # 4) ADS：应用层（面向业务的宽表/看板/CUBE）。order_wide 一行一 order_item（JOIN 维度不膨胀）；
+        # gmv_daily_board / seller_daily_cube 是带日期维度的业务看板/立方体。
+        if {"order_items", "orders", "products", "sellers", "customers"} <= built:
+            conn.execute("""
+                CREATE OR REPLACE TABLE ads_order_wide AS
+                SELECT
+                    i.order_id, i.order_item_id, i.product_id, i.seller_id,
+                    o.customer_id, o.order_status,
+                    i.price, i.freight_value,
+                    o.order_purchase_timestamp,
+                    p.product_category_name,    -- 品类维度
+                    s.seller_city,              -- 卖家城市维度
+                    c.customer_city             -- 客户城市维度
+                FROM dwd_order_items i
+                JOIN dwd_orders o ON i.order_id = o.order_id
+                JOIN dim_product p ON i.product_id = p.product_id
+                JOIN dim_seller s ON i.seller_id = s.seller_id
+                JOIN dim_customer c ON o.customer_id = c.customer_id
+            """)
+        if {"orders", "order_items"} <= built:
+            conn.execute("""
+                CREATE OR REPLACE TABLE ads_gmv_daily_board AS
+                SELECT
+                    m.order_date AS date_key,
+                    d.year, d.quarter, d.month,
+                    m.orders, m.gmv, m.avg_order_value
+                FROM daily_metrics m
+                JOIN dim_date d ON m.order_date = d.date_key
+            """)
+            conn.execute("""
+                CREATE OR REPLACE TABLE ads_seller_daily_cube AS
+                SELECT
+                    i.seller_id,
+                    CAST(o.order_purchase_timestamp AS DATE) AS date_key,
+                    COUNT(DISTINCT i.order_id) AS orders,
+                    SUM(i.price) AS gmv
+                FROM dwd_order_items i
+                JOIN dwd_orders o ON i.order_id = o.order_id
+                GROUP BY i.seller_id, CAST(o.order_purchase_timestamp AS DATE)
             """)
 
 
