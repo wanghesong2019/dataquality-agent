@@ -83,3 +83,30 @@ def test_clone_warehouse(mini_warehouse):
     clone.execute("INSERT INTO orders SELECT * FROM orders LIMIT 1")
     assert src.execute("SELECT COUNT(*) FROM orders").fetchone()[0] == before
     assert clone.execute("SELECT COUNT(*) FROM orders").fetchone()[0] == before + 1
+
+
+def test_dim_date_covers_all_order_dates(mini_data):
+    """dim_date 一行一个 distinct 下单日期；year/quarter/month 与 date_key 一致。"""
+    s = Settings(data_dir=str(mini_data), db_path=str(mini_data / "test.duckdb"))
+    w = Warehouse(s)
+    w.build()
+    conn = w.connect()
+    distinct_dates = conn.execute(
+        "SELECT COUNT(DISTINCT CAST(order_purchase_timestamp AS DATE)) FROM dwd_orders"
+    ).fetchone()[0]
+    assert conn.execute("SELECT COUNT(*) FROM dim_date").fetchone()[0] == distinct_dates
+    row = conn.execute(
+        "SELECT year, quarter, month FROM dim_date WHERE date_key = DATE '2018-01-01'"
+    ).fetchone()
+    assert row == (2018, 1, 1)
+
+
+def test_dim_date_columns_typed(mini_data):
+    """dim_date 的 date_key 是 DATE、year/month 是 INTEGER（EXTRACT 规范化）。"""
+    s = Settings(data_dir=str(mini_data), db_path=str(mini_data / "test.duckdb"))
+    w = Warehouse(s)
+    w.build()
+    conn = w.connect()
+    assert conn.execute("SELECT typeof(date_key) FROM dim_date LIMIT 1").fetchone()[0] == "DATE"
+    assert conn.execute("SELECT typeof(year) FROM dim_date LIMIT 1").fetchone()[0] == "INTEGER"
+    assert conn.execute("SELECT typeof(month) FROM dim_date LIMIT 1").fetchone()[0] == "INTEGER"

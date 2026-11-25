@@ -146,6 +146,24 @@ class Warehouse:
                 FROM geolocation
             """)
 
+        # 2.6) DIM 日期维度：从下单日期拆出唯一日期轴（年/季/月/周/星期），供 ADS 宽表/趋势分析做维度。
+        if "orders" in built:
+            conn.execute("""
+                CREATE OR REPLACE TABLE dim_date AS
+                SELECT
+                    date_key,
+                    CAST(EXTRACT(YEAR FROM date_key) AS INTEGER) AS year,          -- 年
+                    CAST(EXTRACT(QUARTER FROM date_key) AS INTEGER) AS quarter,    -- 季
+                    CAST(EXTRACT(MONTH FROM date_key) AS INTEGER) AS month,        -- 月
+                    CAST(EXTRACT(WEEK FROM date_key) AS INTEGER) AS week,          -- 周（ISO 周）
+                    CAST(EXTRACT(ISODOW FROM date_key) AS INTEGER) AS day_of_week -- 星期（1=周一）
+                FROM (
+                    SELECT DISTINCT CAST(order_purchase_timestamp AS DATE) AS date_key
+                    FROM dwd_orders
+                )
+                ORDER BY date_key
+            """)
+
         # 3) DWS：聚合指标表（L1 volume/distribution 的多基线：daily_metrics 供 volume，dwd_orders/dwd_reviews 供 distribution）
         if {"orders", "order_items"} <= built:
             conn.execute("""
