@@ -176,7 +176,7 @@
 - 10+ 专家、Supervisor 上下文预算爆 → Hierarchical；
 - 高自治探索、容错 > 确定性 → Swarm。
 
-> **本项目映射（选型策略落地，诚实 + 加分）**：我的项目其实**不是"自由协作的多 Agent"，而是"职责分离的流水线"**——五个节点是固定 DAG，`_route` 只是 Router 的一次条件分流（有没有高危→审批/报告），不是 Supervisor 的持续协调。为什么不用 Supervisor/Handoff：巡检流程固定串行、任务边界清晰、无需控制权转移或动态拆分，Workflow 最便宜可预测。这正好呼应"别急着上多 Agent"——如果以后要扩成"检测→多专家归因→多专家整改"的动态分工，才需要升级成 Supervisor（**演进规划见 §13**）。
+> **本项目映射（选型策略落地，诚实 + 加分）**：我的项目**走过三代拓扑、全部用 eval 裁决**（见 §13）——第一代是固定 DAG 流水线（`_route` 只是 Router 的一次条件分流），第二代上 Supervisor + 3 专职（把"多 Agent"做实），第三代反而**收薄成单 Agent（thin）**：因为把取证下沉到确定性层后，多 Agent 只剩协调税，eval 测「成本归一成功率」单 Agent 3.6× 胜。这段经历恰好证明那句「多 Agent 不是高级，是最后手段」——拓扑是 eval 出来的，不是拍脑袋的。
 
 #### b.3 工程陷阱和框架演进趋势
 
@@ -325,6 +325,9 @@
 > **整改成功率用"复检口径"**——不是看 SQL 长啥样，而是"应用 fix_sql 后重跑检测、异常是否消失"（`eval/harness.py:42`）。而且我按**可逆/数据丢失分型**：可逆异常（重复、负值）SQL 能修、成功率 1.0；数据丢失异常（删行、置空）原始值已毁、只能上游重跑、成功率 0.0（`eval/harness.py:14` 的 `REVERSIBLE_TYPES`）。这个分型印证了"SQL 不是万能"的边界，比一个笼统的 0.50 更有说服力。
 > **LLM-as-Judge**：我用 rubric 让强模型给归因/整改质量打 1~5 分，但配了 `judge_agreement` 做人工抽检校准（`eval/judge.py`），解析失败降级最低分不抛异常。**真跑了校准**（`scripts/run_judge_calibration.py`，6 条标注集），一致率一路从 prompt 化 JSON 的 **16.67%** → 结构化输出 + rubric 锚点 **38.89%** → 加根因上下文 **44.44%**（exact）/ **77.78%**（±1 容差）。三个关键经验：① DeepSeek function calling 会**截断含空格的 property name**（"action_type 归类"→"action_type），维度名必须无空格；② 不给 judge 根因，它会把"删孤儿行"的 fix_sql 判成满分（orphan 该 ticket 重跑上游）；③ exact 1~5 太苛刻（4 vs 5 方向一致却判不一致），±1 容差才是 Likert 量表"rough agreement"的合理口径。结论：judge **方向性正确但精确档位有噪声**，所以关键判定（SQL 能否跑通、异常是否消失）用可验证信号，judge 只用于开放维度。
 
+> **确定性 eval（v0.2 新增，CI 门禁）**：`eval/deterministic.py` 跑一次**无 LLM** 的确定性评估——自包含建仓 + 注入 + 检测 + baseline-aware F1，`dqagent eval` / CI F1 门禁共用。检测层（L0/L1）纯确定性，检测 F1=1.0 可在 CI 硬门禁（263 tests），**不烧 LLM 就能守住「检测不回归」**——体现「确定性优先」的收益：能规则的不花 LLM，连评测都便宜。
+> **成本归一的成功率 + pass^k（v0.2 裁决单 vs 多 Agent 用）**：多 Agent 拓扑不能只看准确率，要看**成本归一的成功率**（成功任务 / 花掉的 token）+ **pass^k**（k 次里至少一次成功，非 pass@k 的抽样重试）。我用它裁决「Supervisor 3 专职 vs thin 单 Agent」：thin 归因 0.900 vs supervisor 0.800、成本 3.06×——单 Agent 更准且更省（呼应 §13）。
+
 **来源**：agent-interview evaluation + MisterBooo《评估与监控图解》+ AgentGuide《模型评估篇》+ 阿里云《Agent 怎么评测》。
 
 ---
@@ -349,38 +352,47 @@
 
 ---
 
-## 10. 数据质量检测三层（项目特有，映射到通用考点）
+## 10. 数据质量检测：一切皆断言（项目特有，映射到通用考点）
+
+> 项目的灵魂是设计哲学文档 `docs/specs/design-philosophy.md` 的一句话——**「一切皆断言，判断皆有据」**（Everything is an assertion; every judgment is evidence-backed）。检测 / 归因 / 整改 / 评估是**同一种「断言」**，不是四个独立模块。这条世界观是可复现的差异点（代码能抄、哲学抄不走）。
 
 **高频题（映射）**：
 - Q：哪些检测该用规则/统计、哪些该用 LLM？（对应"模型 vs 确定性计算的边界"）
 - Q：怎么让异常注入可复现？（对应"评估的地基"）
+- Q：检测结果凭什么可信？（对应"证据 / 防幻觉"）
 
 **答案要点**：
-- **确定性优先、LLM 兜底**：能规则断言的（主键重复、负值、null 率）用 0-LLM 规则，最快最可解释；统计（z-score/PSI/血缘水位线）学历史基线报偏差；LLM 语义检测最后兜底。这是成本与可靠性的分层。
-- 注入器用固定 seed（`config.py:13` `seed=42`）保证 ground-truth 可复现——评估的地基必须可复现。
+- **断言统一（Axiom 1）**：L0 规则 / L1 统计 / L2 语义**不是三种东西，是同一种「断言」的三种判定方式**——一个断言 = 声明（declaration：表/列/条件/阈值）+ 判定（verdict：pass/warn/fail）+ 证据（evidence）。差别只在「怎么算出 verdict」：L0 确定性、L1 基线偏离、L2 LLM 推理。
+- **证据一等（Axiom 2）**：证据不是异常旁边的一句话，而是结构化 `Evidence` 对象（`query` + `rows` 命中行样本 + `expected/actual` + `lineage/blast_radius`，`models.py`）。检测在判定 fail 的那一刻顺手 `sample_offending` 抓命中行（`LIMIT 20` 封顶）——证据从「数字」变「行」，token-cheap 且能被 eval 检查「证据是否支撑结论」。
+- **确定性优先（Axiom 3）**：能规则不统计、能统计不 LLM——不是悬空口号，而是「先试最便宜的判定方式，判不了才升级」。由此推出 P1 确定性可重放（同快照 + 同断言 → 同结论），使 CI 的 deterministic eval 门禁成立。
+- 注入器用固定 seed（`config.py` `seed=42`）保证 ground-truth 可复现——评估的地基必须可复现。
 
 **本项目怎么答**：
-> 检测三层现在齐全：L0 规则断言（`detection/rules.py`，0-LLM）、L1 统计（`detection/stats.py`：血缘断裂/停更/schema 漂移/**volume(z-score)/distribution(PSI)**）、L2 LLM 语义（`detection/semantic.py`：采样 DWD 表让 LLM 找规则/统计抓不到的语义异常，`semantic_model` 缺省跳过）。分层逻辑：确定性优先、LLM 兜底——规则最快最可解释，统计学历史基线，LLM 只兜底语义层。
+> 检测层是「断言 + 证据」架构：`WarehouseAdapter` 四原语（execute/list_tables/describe_table/row_count，`adapters/base.py`）是取证据的**唯一只读接口**（DuckDB/Postgres 两个实现，接口层就没有写能力）；`Detector` 协议（`detection/base.py`：`name` + `detect(adapter, ctx) -> list[Anomaly]`）+ 注册表 `DETECTORS` 让每个检测器是独立可插拔步骤、单个失败隔离（`stats[name]` 记 -1.0 不拖垮整次巡检）；L0 规则已抽成**声明式断言目录**（`detection/catalog.py`：YAML 声明 `unique/not_null/null_rate/value_range/referential` → 编译成 detector，v0.3）。L1 统计 / L2 语义照旧，但都统一产出带 `Evidence` 的 `Anomaly`。
 
-> **L2 语义检测（已优化，2026-10-23）**：`detection/semantic.py` 的 `run_semantic_checks` 从「取前 3 行」改成「固定大小的列画像」（cardinality / null 率 / min-max / 示例值，token 成本不随行数增长）+ 数据字典（`TABLE_CODECS`，字段含义 + 合法取值域，材料来自 warehouse.py 字段注释）+ "Fail if" 失败用例。L2 仍是兜底层、不进 eval（`semantic_model` 缺省跳过），属加分项。
+> **声明式 vs 内置（诚实边界）**：YAML 目录只覆盖「可通用化」的 5 类结构约束；Olist 特有业务不变式（时间倒挂/未来日期/跨表金额/状态/邮编一致）因跨表跨列、要造 SQL DSL，保持硬编码作「内置检查」（`run_consistency_checks`），两条都满足断言统一，只是 declaration 语法不同（YAGNI，不为一类复杂公式造图灵完备的声明语言）。
 
-### 展开精讲：数仓分层为什么是「检测导向」而非「分析导向」？
+> **L2 语义检测（已优化）**：固定大小的列画像（cardinality/null 率/min-max/随机示例值，token 不随行数增长）+ 数据字典 + "Fail if" 失败用例。L2 仍是兜底层、不进确定性 eval，属加分项。
 
-**一句话定调**：这个数仓（`data/warehouse.py`）不是标准星型模型，而是面向数据质量检测的「ODS → DWD → DWS」轻量分层——它要喂给三层检测（L0 规则 / L1 统计 / L2 语义），不是给 BI 出报表。
+### 展开精讲：数仓分层为什么从「检测导向三层」长成「五层 + 维度建模」？
 
-**分层与表分类**：
-- ODS：9 张原始 CSV 落库（`warehouse.py:9-19`）。
-- DWD：事实表 = dwd_orders / dwd_order_items / dwd_payments / dwd_reviews（交易流水）；维度表 = dwd_products / dwd_sellers / dwd_customers / dwd_geolocation（业务实体）。
-- DWS：daily_metrics（日粒度，L1 volume 基线）+ seller_metrics / category_metrics / payment_summary（seller/category/payment 横截面聚合，补 DWS 多基线）。
+**一句话定调**：数仓从早期「面向检测的 ODS→DWD→DWS 轻量三层」，演进成标准企业级 **ODS→DWD→DIM→DWS→ADS 五层**（`docs/data-warehouse/resume.md`）。早期「检测导向」的取舍仍然成立（不 flatten、检测逐对校验），只是补上了维度建模 + ADS 宽表去 demo 味。
 
-**三个「有意不做」的取舍**（面试最值钱）：
-1. **不建统一事实宽表**：星型模型的宽表是给分析 join 用的；检测要的是「各表独立、靠 FK 列逐对校验」，所以 DWD 各表仅通过 order_id/product_id/seller_id/customer_id 逻辑关联，不 flatten。
-2. **不建真实 FK 约束**：DuckDB `CREATE TABLE AS` 不加约束，「关联」只是列值能对上；引用完整性交给检测层 `check_orphan` 逐对校验兜底——「数据不强制、检测来补缺」。
-3. **DWS 读 ODS 还是 DWD 看列要不要 TRY_CAST**：daily_metrics 直接 JOIN ODS 的 orders/order_items（这两个表的数值列在 ODS 已是干净 DOUBLE、只按日期聚合）；seller_metrics 的评分、payment_summary 的金额/分期是 TRY_CAST 列 → 读 DWD，category_metrics 的品类名在 ODS 已是干净字符串 → 读 ODS。规则一句话：需要 TRY_CAST 的列才走 DWD。
+**五层职责**：
+- ODS：9 张原始 CSV 落库，**保留脏数据作证据**（加载容错，检测严格）。
+- DWD：事实表（orders/order_items/payments/reviews）+ 维度源，`TRY_CAST` 类型规范化（脏值→NULL）。
+- DIM：6 张维度表（date/customer/seller/product/geolocation/category），**主键唯一**（geolocation 一邮编一行去重）。
+- DWS：4 张汇总（daily_metrics + seller_metrics / category_metrics / payment_summary）。
+- ADS：3 张宽表/看板（order_wide + gmv board + seller cube），JOIN 维度**零膨胀**（行数 = 明细数）。
 
-**translation 表为何「加载但不用」**：product_category_translation 在 ODS 被加载（`warehouse.py:18`），但没建 DWD、也没被任何 SQL 引用——因为当前检测不用品类语义：L1 distribution 只查 order_status、L2 语义只采样 dwd_orders/dwd_order_items。需要英文品类名时再补。
+**三个「有意为之」的取舍**（面试最值钱）：
+1. **检测层不 flatten、靠 FK 列逐对校验**：星型模型的宽表是给分析 join 用的；检测要的是「各表独立、逐对校验」，所以 DWD 各表仅通过 order_id/product_id/seller_id/customer_id 逻辑关联。**ADS 才做宽表**（那是给分析/看板的，不是给检测的）——「检测用宽表会掩盖异常来源」。
+2. **维度表主键唯一断言 = JOIN 膨胀的「根因拦截」**：维度建模不变式「规范维度表 PK 唯一」，重复即建模/加载故障——这是「事实×维度 JOIN 行数翻倍」的根因；膨胀率检测本身是 roadmap 后置项（不混淆根因与后果）。
+3. **「加载容错、检测严格」的分层职责分离**：DWD 用 `TRY_CAST` 把脏值→NULL（加载层健壮不崩），检测层严格抓脏值——一层负责「别挂」，一层负责「别错」。
 
-**来源**：本项目代码映射（非题库；对应"模型 vs 确定性计算边界"通用考点 + "数据治理底座（数仓分层/血缘/质量）" A 家族 JD 硬门槛）。
+**translation 表为何「加载但不用」**：product_category_translation 在 ODS 被加载，但没建 DWD、也没被引用——因为当前检测不用品类语义（L1 distribution 只查 order_status、L2 只采样 orders/order_items）。需要英文品类名时再补。
+
+**来源**：`docs/specs/design-philosophy.md`（断言统一）+ `docs/data-warehouse/resume.md`（五层建模）+ `data/warehouse.py`（建仓代码）；对应"模型 vs 确定性计算边界"通用考点 + "数据治理底座（数仓分层/血缘/质量）" A 家族 JD 硬门槛。
 
 ---
 
@@ -426,7 +438,7 @@
 | 可观测 | `Tracer` 步骤级 Trace：节点/LLM/工具/检索都埋 span、按 parent 组树（render_tree/summary_by_name） | 🟢 较强 |
 | 可评测 | Outcome(F1/归因/整改/端到端) + Trajectory(过程合格率/冗余/schema优先) + Judge 校准(44%/78%) + RAG(Recall@K/MRR) | 🟢 强 |
 | 可调试 | 有 `evidence_chain`（真实工具历史）+ Failure Taxonomy（漏检/归因错/整改失败分型） | 🟢 较强 |
-| 可进化 | 缺 Data Flywheel（一次性 eval，非闭环） | 🔴 缺 |
+| 可进化 | Data Flywheel 已起步：`regenerate_flywheel.py` + `docs/rag-flywheel-governance.md`（注入异常回填案例库 + 出处/有效期治理）；闭环后半段「低分 case → 失败挖掘 → 优化 → A/B」仍待补 | 🟡 进行中 |
 
 ### 待补清单（P1 → P2 → P3）
 
@@ -449,9 +461,9 @@
 
 ---
 
-## 13. 项目演进规划：真·多 Agent（Supervisor）——把"多 Agent"关键词做实
+## 13. 多 Agent 演进：单图 → Supervisor → thin agent（eval 裁决拓扑）
 
-> 定位：**不是新增项目，而是把 `dataquality-agent` 从"单图流水线"演进成"单图 → 多 Agent"两代**，补齐当前简历最大拷问点。
+> 定位：**不是新增项目，而是把 `dataquality-agent` 走完「单图 → Supervisor 多 Agent → thin agent 单 Agent」三代演进**——每一代都由 eval 裁决，最终结论反而印证了 §3 那句「多 Agent 不是高级，是最后手段」。这是最硬的一段「架构判断力」叙事。
 
 ### 为什么做
 
@@ -505,13 +517,26 @@
 
 - **为什么这样拆**：对照单图版 `build_graph`（1 个 ReAct 带 4 工具自由探索）→ Supervisor 版（1 分诊员 + 3 单工具专职 Agent + 1 聚合诊断）。动机 = 分诊让「每个异常只跑 1 个专职 Agent」而非「每个异常跑全部 3 个」（token 65-75 万 → ~5 万）。专职 Agent 工具集更窄 → 探索空间更小 → 更聚焦、更快收敛、且每个 Agent 单独可测。
 
-### 简历怎么呈现（一个项目，两代演进）
+### 第三幕：收薄成 thin agent（v0.2，eval 裁决「单 vs 多」）
 
-**不拆成两个项目**——同一个业务换个架构写两遍 = 注水，必被识破。写成两代演进并主动讲"为什么改"：
+Supervisor 版证明了「分诊省 token」，但 v0.2 把设计哲学落地后，方向**反过来了**——因为 **Evidence 一等公民把取证下沉到确定性检测层**（检测 fail 时顺手 `sample_offending` 抓命中行），归因 Agent 的输入从「要自己在数仓里逛（取证者）」变成「读现成的证据包（证据消费者）」。这时 3 专职 fan-out 的收益消失了，只剩协调税。
 
-> "第一版单图 5 节点流水线，职责耦合、单点故障整链中断、token 预算难控；重构为 Supervisor + 专职 Agent（orchestrator 分诊 + 规则检测/血缘归因/SQL排查/案例检索），归因正确率 0.75 → 0.75（持平）、单次 token 65-75 万 → ~5 万（降 12~14 倍，分诊让每个异常只产出一条聚焦 finding）。"
+**三个决策（`docs/specs/2026-11-20-v020-design.md`）**：
+1. **去掉 LLM 分诊，改确定性路由**：supervisor 里 `_default_assignment` 本来就是确定性兜底（upstream 类 → lineage，其余 → sql），把它提成主路径——省一次非确定性 LLM 调用，也更稳（呼应 §3「集中验证」）。
+2. **3 专职 → 1 归因 Agent（证据消费者）**：Agent 从「取证者」收薄成「证据消费者」——确定性层先把证据抓成有界的证据包（rows + lineage + matched_cases），单一 Agent 的上下文天然就窄了，3 路 fan-out + merge 只剩 T_planning + T_communication + T_merge 协调税，没有并行收益（本来就是串行）。
+3. **保持集中验证 + 证据接地**：LLM 只在三处介入（L2 语义判定、归因推理、整改提案+风险），每处都是「输入证据包、输出带证据的结构化结论」。
 
-一个有演进史的项目 > 两个平铺项目，同时证明架构判断力 + 可进化（呼应 §12 Data Flywheel）。
+**单 vs 多用 eval 裁决，不靠嘴辩（cs2680 #8）**：保留 3 专职作可配置对照臂，eval harness 测「成本归一的成功率 + pass^k」。结果 **thin 归因 0.900 vs supervisor 0.800、token 77198 vs 236221（3.06×）**——thin 更准且更省，成本归一（归因/token）3.44× 胜，单 Agent 赢了。
+
+> **面试最值钱的一段**：我先上了 Supervisor 多 Agent（把「多 Agent」关键词做实），然后 eval 告诉我该收薄成单 Agent——因为把取证下沉到确定性层后，多 Agent 只剩协调税。拓扑是 eval 出来的，不是拍脑袋的。这正好呼应 §3 那句「多 Agent 不是高级，是最后手段」，也呼应「Supervisor 本身在往 Agent-as-Tool 收敛」的框架趋势。
+
+### 简历怎么呈现（一个项目，三代演进）
+
+**不拆成多个项目**——同一个业务换个架构写三遍 = 注水，必被识破。写成三代演进并主动讲"为什么改、eval 怎么裁决"：
+
+> "第一版单图 5 节点流水线（1 个 ReAct 带 4 工具）职责耦合、token 难控；先重构为 Supervisor + 3 专职 Agent（分诊 + 血缘/SQL/案例），归因 0.75 持平、token 65-75 万 → ~5 万；再把取证下沉到确定性检测层（Evidence 一等），3 专职收薄成 1 个证据消费者 Agent（thin），归因 0.800 → 0.900、成本 236221 → 77198 token（3.06×）。三代拓扑全由 eval 裁决。"
+
+一个有演进史 + 有 eval 裁决的项目 > 三个平铺项目，同时证明架构判断力 + 可进化（呼应 §12 Data Flywheel）。
 
 ### 时机（排在 §14 数据基座 + §12 P1 之后）
 
@@ -523,7 +548,7 @@
 
 ## 14. 数据基座升级：把 Olist 9 表用起来（去 demo 味）
 
-> 定位：当前 demo 味不是"数据小"，是"数据接进来但没用起来"——`warehouse.py:9-19` 已映射全部 9 张 Olist 表，但 DWD/DWS/检测只用了 orders + order_items，其余 7 张表（payments/reviews/products/sellers/customers/geolocation/类别翻译）落 ODS 后 0 引用。**先铺数据基座，再谈 P1 评测和多 Agent 演进**（顺序：§14 → §12 P1 → §13）。
+> 定位：当前 demo 味不是"数据小"，是"数据接进来但没用起来"——`warehouse.py` 已映射全部 9 张 Olist 表，但 DWD/DWS/检测只用了 orders + order_items，其余 7 张表（payments/reviews/products/sellers/customers/geolocation/类别翻译）落 ODS 后 0 引用。**本节的 TODO 是第一波（ODS→DWD→DWS），已全部完成；第二波把数仓扩成 ODS→DWD→DIM→DWS→ADS 五层（6 张 DIM 主键唯一 + 3 张 ADS 宽表/看板），见 `docs/data-warehouse/`（design.md / metrics.md / resume.md），面试口径已并入 §10 展开精讲。**
 
 ### TODO 清单（逐条勾选）
 
@@ -550,10 +575,10 @@
 ## 附：一句话速答卡片（面试前 30 分钟过一遍）
 
 - **为什么 LangGraph**：状态机精确控流程 + checkpointer 支撑 HITL + state 做多 Agent 通信总线。
-- **两种循环范式**：归因 = ReAct（工具循环，行动-观察）；整改 = Executor+Critic（生成→评审→重写，Reflexion）。
+- **归因范式**：thin agent = 确定性取证（检测层抓证据）+ 单次 LLM 读证据包出结论；整改 = Executor+Critic（生成→评审→重写，Reflexion）。
 - **结构化输出**：`submit_diagnosis` 伪装工具 → Pydantic schema 强制；整改用 `tool_choice` 约束每轮输出格式。
-- **防幻觉**：证据闸门 + evidence_chain 以真实调用为准（丢弃自述）。
-- **安全**：SafeSQL 只读白名单，工具层断掉 DELETE。
-- **评估**：ground-truth 对齐 + 复检口径 + 可逆/丢失分型；LLM-as-Judge 配人工校准。
-- **数字**：F1=1.0 / 归因 0.75 / 整改 0.50（可逆 1.0 · 丢失 0.0）/ 端到端 0.50 / ~60-80s / ~65-75 万 token（真实 usage 计数）。
-- **诚实边界**：数据丢失异常整改 0.0、血缘硬编码、案例库 4 条 demo——每个都能变成"我清楚这里为什么这样做、下一步怎么补"的加分叙事。
+- **防幻觉**：Evidence 一等（结构化证据，检测抓命中行）+ 证据接地（LLM 只对已抓证据推理）+ evidence_chain 以真实调用为准（丢弃自述）。
+- **安全**：SafeSQL 只读白名单 + `WarehouseAdapter` 四原语只读接口（接口层就没有写能力），工具层断掉 DELETE。
+- **评估**：确定性 eval（no-LLM，CI F1 门禁）+ ground-truth 对齐 + 复检口径 + 可逆/丢失分型；LLM-as-Judge 配人工校准。
+- **数字**：检测 F1=1.0（263 tests CI，确定性）/ 归因 thin 0.900 vs supervisor 0.800（全量 Olist 21 类注入）/ 整改 0.529（可逆 1.0 · 数据丢失 0.2）/ 端到端 0.381 / thin 7.7 万 token（63 calls · 104s）vs supervisor 23.6 万（147 calls · 204s）= **3.06×**。
+- **诚实边界**：数据丢失异常整改 0.0、血缘硬编码、案例库注入异常回填——每个都能变成"我清楚这里为什么这样做、下一步怎么补"的加分叙事。
